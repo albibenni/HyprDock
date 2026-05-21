@@ -31,14 +31,14 @@ coverage:
 	rm -f "$$tmp_file"
 
 stop:
-	@pkill -f "target/debug/HyprDock" 2>/dev/null || true
-	@pkill -f "target/release/HyprDock" 2>/dev/null || true
+	@pkill -f "target/debug/hyprdock" 2>/dev/null || true
+	@pkill -f "target/release/hyprdock" 2>/dev/null || true
 
 clean:
 	cargo clean
 
 help:
-	@echo "HyprDock Makefile"
+	@echo "hyprdock Makefile"
 	@echo "Usage: make <target>"
 	@echo ""
 	@echo "  build             Build the project (debug)"
@@ -47,6 +47,6 @@ help:
 	@echo "  debug             Run with GTK inspector and debug logs"
 	@echo "  test              Run all tests"
 	@echo "  coverage          Generate and print coverage summary"
-	@echo "  stop              Kill any running HyprDock process"
+	@echo "  stop              Kill any running hyprdock process"
 	@echo "  clean             Remove build artifacts"
 	@echo "  help              Show this message"

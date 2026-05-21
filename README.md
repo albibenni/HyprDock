@@ -1,4 +1,4 @@
-# HyprDock
+# hyprdock
 
 A modern dock for Hyprland written in Rust.
 

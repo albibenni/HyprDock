@@ -1,6 +1,6 @@
 use gtk4::prelude::*;
 use gtk4::Application;
-use HyprDock::{hypr, ui};
+use hyprdock::{hypr, ui};
 
 fn main() -> gtk4::glib::ExitCode {
     let app = Application::builder()
