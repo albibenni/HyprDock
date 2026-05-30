@@ -9,23 +9,39 @@ pub struct AppItem {
 }
 
 pub fn get_all_apps() -> Vec<AppItem> {
-    gio::AppInfo::all()
-        .into_iter()
-        .filter(|app| app.should_show())
-        .map(|app| AppItem {
-            name: app.display_name().to_string(),
-            exec: app.executable()
-                .to_string_lossy()
-                .into_owned(),
-            icon: app.icon(),
-        })
-        .collect()
+    println!("Launcher: Fetching all apps...");
+    let mut items = Vec::new();
+    
+    let apps = gio::AppInfo::all();
+    for app in apps {
+        // Wrap every call that could return a null pointer in GLib/C
+        let should_show = std::panic::catch_unwind(|| app.should_show()).unwrap_or(false);
+        if !should_show { continue; }
+
+        let name = std::panic::catch_unwind(|| app.display_name().to_string())
+            .unwrap_or_else(|_| "Unknown".to_string());
+            
+        let exec = std::panic::catch_unwind(|| {
+            app.executable().to_string_lossy().into_owned()
+        }).unwrap_or_else(|_| "unknown".to_string());
+
+        let icon = std::panic::catch_unwind(|| app.icon()).unwrap_or(None);
+
+        items.push(AppItem { name, exec, icon });
+    }
+    
+    println!("Launcher: Found {} apps", items.len());
+    items
 }
 
 pub fn launch_app(app_name: &str) {
     let apps = gio::AppInfo::all();
-    if let Some(app) = apps.into_iter().find(|a| a.display_name() == app_name) {
-        let _ = app.launch(&[], gio::AppLaunchContext::NONE);
+    for app in apps {
+        let name = std::panic::catch_unwind(|| app.display_name().to_string()).unwrap_or_default();
+        if name == app_name {
+            let _ = app.launch(&[], gio::AppLaunchContext::NONE);
+            return;
+        }
     }
 }
 
@@ -33,19 +49,17 @@ pub fn launch_app_by_class(class: &str) {
     let class_lower = class.to_lowercase();
     let apps = gio::AppInfo::all();
     
-    // Attempt to match by ID or executable name
-    if let Some(app) = apps.into_iter().find(|a| {
-        let id_match = a.id()
-            .map(|id| id.to_string().to_lowercase().contains(&class_lower))
-            .unwrap_or(false);
-        
-        let exec_match = a.executable()
-            .to_string_lossy()
-            .to_lowercase()
-            .contains(&class_lower);
+    for app in apps {
+        let id = std::panic::catch_unwind(|| app.id()).unwrap_or(None)
+            .map(|i| i.to_string().to_lowercase())
+            .unwrap_or_default();
             
-        id_match || exec_match
-    }) {
-        let _ = app.launch(&[], gio::AppLaunchContext::NONE);
+        let exec = std::panic::catch_unwind(|| app.executable().to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+            
+        if (!id.is_empty() && id.contains(&class_lower)) || exec.contains(&class_lower) {
+            let _ = app.launch(&[], gio::AppLaunchContext::NONE);
+            return;
+        }
     }
 }

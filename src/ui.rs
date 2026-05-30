@@ -2,6 +2,7 @@ use crate::config::Config;
 use crate::hypr::{HyprEvent, WindowInfo};
 use crate::launcher::{self, AppItem};
 use gtk4::gdk::Display;
+use gtk4::gio;
 use gtk4::prelude::*;
 use gtk4::{
     Application, ApplicationWindow, Box, Button, CssProvider, EventControllerMotion, IconTheme,
@@ -45,10 +46,12 @@ pub struct DockUI {
     pub taskbar_box: Box,
     pub pins_box: Box,
     pub launcher_popover: Popover,
+    pub launcher_list: ListBox,
 }
 
 /// Initializes styling by loading internal and optional external CSS.
 pub fn initialize_styling() {
+    println!("UI: Initializing styling...");
     let provider = CssProvider::new();
     load_internal_css(&provider);
     load_external_css(&provider);
@@ -82,18 +85,23 @@ fn apply_css_to_display(provider: &CssProvider) {
 
 /// Main entry point for building the Dock UI.
 pub fn build_ui(app: &Application, config: &Config) -> DockUI {
+    println!("UI: Building UI...");
     let window = create_window(app);
     setup_layer_shell(&window);
     window.add_css_class(CLASS_DOCK_WINDOW);
 
-    let (content, status_label, taskbar_box, pins_box, launcher_popover) = create_dock_content_layout(config);
+    println!("UI: Creating layout...");
+    let (content, status_label, taskbar_box, pins_box, launcher_popover, launcher_list) = create_dock_content_layout(config);
 
     if config.auto_hide {
+        println!("UI: Setting up auto-hide...");
         setup_auto_hide_behavior(&window, &content, &launcher_popover);
     } else {
+        println!("UI: Setting up static layout...");
         setup_static_behavior(&window, &content);
     }
 
+    println!("UI: Presenting window...");
     window.present();
 
     DockUI {
@@ -102,6 +110,7 @@ pub fn build_ui(app: &Application, config: &Config) -> DockUI {
         taskbar_box,
         pins_box,
         launcher_popover,
+        launcher_list,
     }
 }
 
@@ -122,7 +131,7 @@ fn setup_layer_shell(window: &ApplicationWindow) {
     window.set_keyboard_mode(KeyboardMode::OnDemand);
 }
 
-fn create_dock_content_layout(config: &Config) -> (Box, Label, Box, Box, Popover) {
+fn create_dock_content_layout(config: &Config) -> (Box, Label, Box, Box, Popover, ListBox) {
     let content = Box::builder()
         .orientation(Orientation::Horizontal)
         .spacing(CONTENT_SPACING)
@@ -133,10 +142,12 @@ fn create_dock_content_layout(config: &Config) -> (Box, Label, Box, Box, Popover
     content.add_css_class(CLASS_DOCK_CONTENT);
 
     // Launcher
-    let (launcher_button, launcher_popover) = create_launcher();
+    println!("UI: Creating launcher...");
+    let (launcher_button, launcher_popover, launcher_list) = create_launcher();
     content.append(&launcher_button);
 
     // Pinned Apps (Preferred)
+    println!("UI: Populating pinned apps...");
     let pins_box = Box::builder()
         .orientation(Orientation::Horizontal)
         .spacing(5)
@@ -144,9 +155,8 @@ fn create_dock_content_layout(config: &Config) -> (Box, Label, Box, Box, Popover
     populate_pinned_apps(&pins_box, config);
     content.append(&pins_box);
 
-    // Separator (could be a simple thin widget if needed)
-
     // Taskbar
+    println!("UI: Creating taskbar...");
     let taskbar_box = Box::builder()
         .orientation(Orientation::Horizontal)
         .spacing(5)
@@ -157,7 +167,7 @@ fn create_dock_content_layout(config: &Config) -> (Box, Label, Box, Box, Popover
     status_label.add_css_class(CLASS_STATUS_LABEL);
     content.append(&status_label);
 
-    (content, status_label, taskbar_box, pins_box, launcher_popover)
+    (content, status_label, taskbar_box, pins_box, launcher_popover, launcher_list)
 }
 
 fn populate_pinned_apps(container: &Box, config: &Config) {
@@ -173,22 +183,24 @@ fn create_pinned_app_button(class: &str) -> Button {
     button.add_css_class(CLASS_PINNED_APP);
     button.set_tooltip_text(Some(class));
 
-    let icon_name = resolve_icon_name(class);
     let icon = Image::builder()
-        .icon_name(icon_name)
         .pixel_size(DEFAULT_ICON_SIZE)
         .build();
     icon.add_css_class(CLASS_TASKBAR_ICON);
+
+    if let Some(gicon) = resolve_gicon(class) {
+        icon.set_from_gicon(&gicon);
+    } else {
+        icon.set_icon_name(Some(FALLBACK_ICON_NAME));
+    }
 
     button.set_child(Some(&icon));
 
     let class_clone = class.to_string();
     button.connect_clicked(move |_| {
         if let Some(addr) = crate::hypr::get_first_window_by_class(&class_clone) {
-            println!("Pin: Focusing existing window for {}", class_clone);
             crate::hypr::focus_window(&addr);
         } else {
-            println!("Pin: Launching new instance of {}", class_clone);
             crate::launcher::launch_app_by_class(&class_clone);
         }
     });
@@ -196,7 +208,7 @@ fn create_pinned_app_button(class: &str) -> Button {
     button
 }
 
-fn create_launcher() -> (MenuButton, Popover) {
+fn create_launcher() -> (MenuButton, Popover, ListBox) {
     let button = MenuButton::builder()
         .icon_name("start-here-symbolic")
         .build();
@@ -237,10 +249,6 @@ fn create_launcher() -> (MenuButton, Popover) {
     list_box.add_css_class(CLASS_LAUNCHER_LIST);
     scrolled.set_child(Some(&list_box));
 
-    // Populate initial list
-    let apps = launcher::get_all_apps();
-    populate_launcher_list(&list_box, &apps, &popover);
-
     // Search logic
     let list_box_clone = list_box.clone();
     let popover_clone = popover.clone();
@@ -253,14 +261,22 @@ fn create_launcher() -> (MenuButton, Popover) {
         populate_launcher_list(&list_box_clone, &filtered_apps, &popover_clone);
     });
 
+    // Populate LAZILY when opened
+    let list_box_init = list_box.clone();
+    let popover_init = popover.clone();
+    popover.connect_show(move |_| {
+        println!("UI: Launcher opened, populating...");
+        let apps = launcher::get_all_apps();
+        populate_launcher_list(&list_box_init, &apps, &popover_init);
+    });
+
     popover.set_child(Some(&launcher_box));
     button.set_popover(Some(&popover));
 
-    (button, popover)
+    (button, popover, list_box)
 }
 
 fn populate_launcher_list(list_box: &ListBox, apps: &[AppItem], popover: &Popover) {
-    // Clear
     while let Some(child) = list_box.first_child() {
         list_box.remove(&child);
     }
@@ -415,12 +431,16 @@ fn create_taskbar_item(win: &WindowInfo) -> Button {
         .spacing(6)
         .build();
 
-    let icon_name = resolve_icon_name(&win.class);
     let icon = Image::builder()
-        .icon_name(icon_name)
         .pixel_size(DEFAULT_ICON_SIZE)
         .build();
     icon.add_css_class(CLASS_TASKBAR_ICON);
+
+    if let Some(gicon) = resolve_gicon(&win.class) {
+        icon.set_from_gicon(&gicon);
+    } else {
+        icon.set_icon_name(Some(FALLBACK_ICON_NAME));
+    }
 
     let label = Label::new(Some(&win.class));
 
@@ -436,13 +456,36 @@ fn create_taskbar_item(win: &WindowInfo) -> Button {
     button
 }
 
-fn resolve_icon_name(class: &str) -> String {
-    let normalized = class.to_lowercase();
-    let icon_theme = IconTheme::for_display(&Display::default().expect("Could not get default display"));
-
-    if icon_theme.has_icon(&normalized) {
-        normalized
-    } else {
-        FALLBACK_ICON_NAME.to_string()
+fn resolve_gicon(class: &str) -> Option<gio::Icon> {
+    if class.is_empty() { return None; }
+    let class_lower = class.to_lowercase();
+    
+    // Fast path theme lookup
+    if let Some(display) = Display::default() {
+        let icon_theme = IconTheme::for_display(&display);
+        if icon_theme.has_icon(&class_lower) {
+            return Some(gio::ThemedIcon::new(&class_lower).upcast());
+        }
     }
+
+    // Defensive scan
+    let apps = gio::AppInfo::all();
+    for app in apps {
+        let id = std::panic::catch_unwind(|| app.id()).unwrap_or(None)
+            .map(|i| i.to_string().to_lowercase())
+            .unwrap_or_default();
+            
+        let name = std::panic::catch_unwind(|| app.name().to_lowercase()).unwrap_or_default();
+
+        let exec = std::panic::catch_unwind(|| app.executable().to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+
+        if (!id.is_empty() && id.contains(&class_lower)) || exec.contains(&class_lower) || name == class_lower {
+            if let Ok(icon) = std::panic::catch_unwind(|| app.icon()) {
+                if let Some(icon) = icon { return Some(icon); }
+            }
+        }
+    }
+
+    None
 }
