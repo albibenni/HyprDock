@@ -7,7 +7,7 @@ use gtk4::prelude::*;
 use gtk4::{
     Application, ApplicationWindow, Box, Button, CssProvider, EventControllerMotion, IconTheme,
     Image, Label, ListBox, ListBoxRow, MenuButton, Orientation, Popover, Revealer,
-    RevealerTransitionType, ScrolledWindow, SearchEntry,
+    RevealerTransitionType, ScrolledWindow, SearchEntry, Separator,
 };
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use std::fs;
@@ -15,20 +15,20 @@ use std::rc::Rc;
 use std::cell::RefCell;
 
 // --- Constants: Layout ---
-const DEFAULT_EXCLUSIVE_ZONE: i32 = 50;
+const DEFAULT_EXCLUSIVE_ZONE: i32 = 60; // Slightly more for macOS feel
 const TRIGGER_ZONE_HEIGHT: i32 = 5;
-const CONTENT_SPACING: i32 = 10;
-const CONTENT_MARGIN: i32 = 8;
+const CONTENT_SPACING: i32 = 8; // Tighter spacing like macOS
 const DOCK_NAMESPACE: &str = "hyprdock";
 
 // --- Constants: Icons ---
-const DEFAULT_ICON_SIZE: i32 = 24;
+const DEFAULT_ICON_SIZE: i32 = 32; // Larger icons for macOS feel
 const LAUNCHER_ICON_SIZE: i32 = 32;
 const FALLBACK_ICON_NAME: &str = "application-x-executable";
 
 // --- Constants: CSS Classes ---
 const CLASS_DOCK_WINDOW: &str = "dock-window";
 const CLASS_DOCK_CONTENT: &str = "dock-content";
+const CLASS_DOCK_SEPARATOR: &str = "dock-separator";
 const CLASS_TRIGGER_BOX: &str = "trigger-box";
 const CLASS_TASKBAR_ITEM: &str = "taskbar-item";
 const CLASS_TASKBAR_ICON: &str = "taskbar-icon";
@@ -123,8 +123,9 @@ fn setup_layer_shell(window: &ApplicationWindow) {
     window.set_layer(Layer::Top);
     window.set_namespace(Some(DOCK_NAMESPACE));
     window.set_anchor(Edge::Bottom, true);
-    window.set_anchor(Edge::Left, true);
-    window.set_anchor(Edge::Right, true);
+    // For a centered pill, we don't anchor to Left/Right
+    window.set_anchor(Edge::Left, false);
+    window.set_anchor(Edge::Right, false);
     window.set_keyboard_mode(KeyboardMode::OnDemand);
 }
 
@@ -133,8 +134,8 @@ fn create_dock_content_layout(config: &Config) -> (Box, Box, Box, Popover) {
         .orientation(Orientation::Horizontal)
         .spacing(CONTENT_SPACING)
         .halign(gtk4::Align::Center)
-        .margin_top(CONTENT_MARGIN)
-        .margin_bottom(CONTENT_MARGIN)
+        .margin_top(4) // Spacing from screen edge
+        .margin_bottom(4)
         .build();
     content.add_css_class(CLASS_DOCK_CONTENT);
 
@@ -145,15 +146,20 @@ fn create_dock_content_layout(config: &Config) -> (Box, Box, Box, Popover) {
     // Pinned Apps (Preferred)
     let pins_box = Box::builder()
         .orientation(Orientation::Horizontal)
-        .spacing(5)
+        .spacing(CONTENT_SPACING)
         .build();
     populate_pinned_apps(&pins_box, config);
     content.append(&pins_box);
 
+    // Vertical Separator (macOS style)
+    let separator = Separator::new(Orientation::Vertical);
+    separator.add_css_class(CLASS_DOCK_SEPARATOR);
+    content.append(&separator);
+
     // Taskbar
     let taskbar_box = Box::builder()
         .orientation(Orientation::Horizontal)
-        .spacing(5)
+        .spacing(CONTENT_SPACING)
         .build();
     content.append(&taskbar_box);
 
