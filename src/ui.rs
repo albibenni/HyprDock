@@ -36,6 +36,7 @@ const CLASS_LAUNCHER_POPOVER: &str = "launcher-popover";
 const CLASS_LAUNCHER_LIST: &str = "launcher-list";
 const CLASS_LAUNCHER_ITEM: &str = "launcher-item";
 const CLASS_PINNED_APP: &str = "pinned-app";
+const CLASS_OPEN_APP: &str = "open-app";
 
 // --- UI Components ---
 
@@ -412,12 +413,8 @@ fn clear_container(container: &Box) {
 fn create_taskbar_item(win: &WindowInfo) -> Button {
     let button = Button::builder().build();
     button.add_css_class(CLASS_TASKBAR_ITEM);
+    button.add_css_class(CLASS_OPEN_APP);
     button.set_tooltip_text(Some(&win.title));
-
-    let content_box = Box::builder()
-        .orientation(Orientation::Horizontal)
-        .spacing(6)
-        .build();
 
     let icon = Image::builder()
         .pixel_size(DEFAULT_ICON_SIZE)
@@ -430,11 +427,7 @@ fn create_taskbar_item(win: &WindowInfo) -> Button {
         icon.set_icon_name(Some(FALLBACK_ICON_NAME));
     }
 
-    let label = Label::new(Some(&win.class));
-
-    content_box.append(&icon);
-    content_box.append(&label);
-    button.set_child(Some(&content_box));
+    button.set_child(Some(&icon));
 
     let addr = win.address.clone();
     button.connect_clicked(move |_| {

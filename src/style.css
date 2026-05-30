@@ -19,7 +19,7 @@
     background-color: rgba(255, 255, 255, 0.05);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 6px;
-    padding: 2px 8px;
+    padding: 4px 10px; /* Slightly more padding */
     color: #cdd6f4;
     transition: all 0.2s ease;
 }
@@ -30,7 +30,6 @@
 }
 
 .taskbar-icon {
-    margin-right: 2px;
     opacity: 0.9;
 }
 
@@ -63,6 +62,14 @@
 
 .launcher-item:hover {
     background-color: rgba(255, 255, 255, 0.1);
+}
+
+.open-app {
+    border-bottom: 2px solid #89b4fa; /* Accent color for open apps */
+}
+
+.pinned-app {
+    /* Pinned apps that are NOT open */
 }
 
 .trigger-box {
