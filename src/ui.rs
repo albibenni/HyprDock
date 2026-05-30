@@ -446,7 +446,7 @@ fn resolve_gicon(class: &str) -> Option<gio::Icon> {
     if class.is_empty() { return None; }
     let class_lower = class.to_lowercase();
     
-    // Fast path theme lookup
+    // 1. Fast path: Exact theme lookup
     if let Some(display) = Display::default() {
         let icon_theme = IconTheme::for_display(&display);
         if icon_theme.has_icon(&class_lower) {
@@ -454,42 +454,31 @@ fn resolve_gicon(class: &str) -> Option<gio::Icon> {
         }
     }
 
-    // Defensive scan
+    // 2. Defensive fuzzy scan of all installed apps
     let apps = gio::AppInfo::all();
-    for app in apps {
-        // MATCH BY ID (e.g. "firefox")
-        if let Some(id) = std::panic::catch_unwind(|| app.id()).unwrap_or(None) {
-            if id.to_string().to_lowercase().contains(&class_lower) {
-                if let Ok(icon) = std::panic::catch_unwind(|| app.icon()) {
-                    if let Some(icon) = icon { return Some(icon); }
-                }
-            }
-        }
-
-        // MATCH BY EXEC (e.g. "/usr/bin/firefox")
-        if let Ok(exec) = std::panic::catch_unwind(|| app.executable()) {
-            if exec.to_string_lossy().to_lowercase().contains(&class_lower) {
-                if let Ok(icon) = std::panic::catch_unwind(|| app.icon()) {
-                    if let Some(icon) = icon { return Some(icon); }
-                }
-            }
-        }
+    for app in &apps {
+        let id = std::panic::catch_unwind(|| app.id()).unwrap_or(None)
+            .map(|i| i.to_string().to_lowercase())
+            .unwrap_or_default();
+        let name = std::panic::catch_unwind(|| app.name().to_lowercase()).unwrap_or_default();
         
-        // MATCH BY NAME (e.g. "Firefox Web Browser")
-        if let Ok(name) = std::panic::catch_unwind(|| app.name()) {
-            if name.to_lowercase() == class_lower {
-                if let Ok(icon) = std::panic::catch_unwind(|| app.icon()) {
-                    if let Some(icon) = icon { return Some(icon); }
-                }
+        // Match if the app name or ID is part of the window class (common for Web Apps)
+        if (!name.is_empty() && class_lower.contains(&name)) || (!id.is_empty() && class_lower.contains(&id)) {
+            if let Ok(icon) = std::panic::catch_unwind(|| app.icon()) {
+                if let Some(icon) = icon { return Some(icon); }
             }
         }
     }
 
-    // Fallback: Check if the class name exists directly in the icon theme
-    if let Some(display) = Display::default() {
-        let icon_theme = IconTheme::for_display(&display);
-        if icon_theme.has_icon(&class_lower) {
-            return Some(gio::ThemedIcon::new(&class_lower).upcast());
+    // 3. Match by executable name
+    for app in apps {
+        if let Ok(exec) = std::panic::catch_unwind(|| app.executable()) {
+            let exec_str = exec.to_string_lossy().to_lowercase();
+            if !exec_str.is_empty() && class_lower.contains(&exec_str) {
+                if let Ok(icon) = std::panic::catch_unwind(|| app.icon()) {
+                    if let Some(icon) = icon { return Some(icon); }
+                }
+            }
         }
     }
 
