@@ -33,3 +33,34 @@
     margin-right: 2px;
     opacity: 0.9;
 }
+
+.launcher-button {
+    background: transparent;
+    border: none;
+    padding: 4px;
+    margin-right: 8px;
+}
+
+.launcher-button:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+}
+
+.launcher-popover {
+    background-color: rgba(30, 30, 46, 0.95);
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.launcher-list {
+    background: transparent;
+}
+
+.launcher-item {
+    border-radius: 8px;
+    margin: 2px 0;
+}
+
+.launcher-item:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}

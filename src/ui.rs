@@ -1,12 +1,14 @@
 use crate::config::Config;
 use crate::hypr::{HyprEvent, WindowInfo};
+use crate::launcher::{self, AppItem};
 use gtk4::gdk::Display;
 use gtk4::prelude::*;
 use gtk4::{
     Application, ApplicationWindow, Box, Button, CssProvider, EventControllerMotion, IconTheme,
-    Image, Label, Orientation, Revealer, RevealerTransitionType,
+    Image, Label, ListBox, ListBoxRow, MenuButton, Orientation, Popover, Revealer,
+    RevealerTransitionType, ScrolledWindow, SearchEntry,
 };
-use gtk4_layer_shell::{Edge, Layer, LayerShell};
+use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use std::fs;
 
 // --- Constants: Layout ---
@@ -18,6 +20,7 @@ const DOCK_NAMESPACE: &str = "hyprdock";
 
 // --- Constants: Icons ---
 const DEFAULT_ICON_SIZE: i32 = 24;
+const LAUNCHER_ICON_SIZE: i32 = 32;
 const FALLBACK_ICON_NAME: &str = "application-x-executable";
 
 // --- Constants: CSS Classes ---
@@ -27,6 +30,10 @@ const CLASS_STATUS_LABEL: &str = "status-label";
 const CLASS_TRIGGER_BOX: &str = "trigger-box";
 const CLASS_TASKBAR_ITEM: &str = "taskbar-item";
 const CLASS_TASKBAR_ICON: &str = "taskbar-icon";
+const CLASS_LAUNCHER_BUTTON: &str = "launcher-button";
+const CLASS_LAUNCHER_POPOVER: &str = "launcher-popover";
+const CLASS_LAUNCHER_LIST: &str = "launcher-list";
+const CLASS_LAUNCHER_ITEM: &str = "launcher-item";
 
 // --- UI Components ---
 
@@ -107,6 +114,7 @@ fn setup_layer_shell(window: &ApplicationWindow) {
     window.set_anchor(Edge::Bottom, true);
     window.set_anchor(Edge::Left, true);
     window.set_anchor(Edge::Right, true);
+    window.set_keyboard_mode(KeyboardMode::OnDemand);
 }
 
 fn create_dock_content_layout() -> (Box, Label, Box) {
@@ -119,6 +127,10 @@ fn create_dock_content_layout() -> (Box, Label, Box) {
         .build();
     content.add_css_class(CLASS_DOCK_CONTENT);
 
+    // Launcher
+    let launcher_button = create_launcher_button();
+    content.append(&launcher_button);
+
     let taskbar_box = Box::builder()
         .orientation(Orientation::Horizontal)
         .spacing(5)
@@ -130,6 +142,115 @@ fn create_dock_content_layout() -> (Box, Label, Box) {
     content.append(&status_label);
 
     (content, status_label, taskbar_box)
+}
+
+fn create_launcher_button() -> MenuButton {
+    let button = MenuButton::builder()
+        .icon_name("start-here-symbolic")
+        .build();
+    button.add_css_class(CLASS_LAUNCHER_BUTTON);
+
+    let popover = Popover::builder()
+        .position(gtk4::PositionType::Top)
+        .autohide(true)
+        .build();
+    popover.add_css_class(CLASS_LAUNCHER_POPOVER);
+
+    let launcher_box = Box::builder()
+        .orientation(Orientation::Vertical)
+        .spacing(10)
+        .width_request(300)
+        .height_request(400)
+        .margin_top(10)
+        .margin_bottom(10)
+        .margin_start(10)
+        .margin_end(10)
+        .build();
+
+    let search_entry = SearchEntry::builder()
+        .placeholder_text("Search applications...")
+        .build();
+    launcher_box.append(&search_entry);
+
+    let scrolled = ScrolledWindow::builder()
+        .hscrollbar_policy(gtk4::PolicyType::Never)
+        .vscrollbar_policy(gtk4::PolicyType::Automatic)
+        .propagate_natural_height(true)
+        .build();
+    launcher_box.append(&scrolled);
+
+    let list_box = ListBox::builder()
+        .selection_mode(gtk4::SelectionMode::None)
+        .build();
+    list_box.add_css_class(CLASS_LAUNCHER_LIST);
+    scrolled.set_child(Some(&list_box));
+
+    // Populate initial list
+    let apps = launcher::get_all_apps();
+    populate_launcher_list(&list_box, &apps, &popover);
+
+    // Search logic
+    let list_box_clone = list_box.clone();
+    let popover_clone = popover.clone();
+    search_entry.connect_search_changed(move |entry| {
+        let query = entry.text().to_lowercase();
+        let filtered_apps: Vec<AppItem> = launcher::get_all_apps()
+            .into_iter()
+            .filter(|app| app.name.to_lowercase().contains(&query))
+            .collect();
+        populate_launcher_list(&list_box_clone, &filtered_apps, &popover_clone);
+    });
+
+    popover.set_child(Some(&launcher_box));
+    button.set_popover(Some(&popover));
+
+    button
+}
+
+fn populate_launcher_list(list_box: &ListBox, apps: &[AppItem], popover: &Popover) {
+    // Clear
+    while let Some(child) = list_box.first_child() {
+        list_box.remove(&child);
+    }
+
+    for app in apps {
+        let row = ListBoxRow::new();
+        row.add_css_class(CLASS_LAUNCHER_ITEM);
+
+        let item_box = Box::builder()
+            .orientation(Orientation::Horizontal)
+            .spacing(12)
+            .margin_top(6)
+            .margin_bottom(6)
+            .margin_start(6)
+            .margin_end(6)
+            .build();
+
+        let icon = Image::builder()
+            .pixel_size(LAUNCHER_ICON_SIZE)
+            .build();
+        if let Some(gicon) = &app.icon {
+            icon.set_from_gicon(gicon);
+        } else {
+            icon.set_icon_name(Some(FALLBACK_ICON_NAME));
+        }
+
+        let label = Label::new(Some(&app.name));
+        label.set_halign(gtk4::Align::Start);
+
+        item_box.append(&icon);
+        item_box.append(&label);
+        row.set_child(Some(&item_box));
+
+        let app_name = app.name.clone();
+        let popover_clone = popover.clone();
+        row.connect_activate(move |_| {
+            launcher::launch_app(&app_name);
+            popover_clone.popdown();
+        });
+
+        list_box.append(&row);
+    }
 }
 
 fn setup_static_behavior(window: &ApplicationWindow, content: &Box) {
