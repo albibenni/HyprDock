@@ -1,35 +1,67 @@
 use crate::hypr::HyprEvent;
+use crate::config::Config;
+use gtk4::gdk::Display;
 use gtk4::prelude::*;
 use gtk4::{
-    Application, ApplicationWindow, Box, EventControllerMotion, Label, Orientation, Revealer,
-    RevealerTransitionType,
+    Application, ApplicationWindow, Box, CssProvider, EventControllerMotion, Label, Orientation,
+    Revealer, RevealerTransitionType,
 };
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
+use std::fs;
 
-// --- Constants ---
+// --- Constants: Layout ---
 const DEFAULT_EXCLUSIVE_ZONE: i32 = 50;
 const TRIGGER_ZONE_HEIGHT: i32 = 1;
 const CONTENT_SPACING: i32 = 20;
 const CONTENT_MARGIN: i32 = 10;
 const DOCK_NAMESPACE: &str = "hyprdock";
 
-// --- Configuration ---
-pub struct Config {
-    pub auto_hide: bool,
+// --- Constants: CSS Classes ---
+const CLASS_DOCK_WINDOW: &str = "dock-window";
+const CLASS_DOCK_CONTENT: &str = "dock-content";
+const CLASS_STATUS_LABEL: &str = "status-label";
+const CLASS_TRIGGER_BOX: &str = "trigger-box";
+
+// --- UI Construction ---
+
+/// Initializes styling by loading internal and optional external CSS.
+pub fn initialize_styling() {
+    let provider = CssProvider::new();
+    load_internal_css(&provider);
+    load_external_css(&provider);
+    apply_css_to_display(&provider);
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        Self { auto_hide: true }
+fn load_internal_css(provider: &CssProvider) {
+    provider.load_from_data(include_str!("style.css"));
+}
+
+fn load_external_css(provider: &CssProvider) {
+    if let Some(proj_dirs) = crate::config::get_project_dirs() {
+        let css_path = proj_dirs.config_dir().join("style.css");
+        if css_path.exists() {
+            if let Ok(content) = fs::read_to_string(&css_path) {
+                provider.load_from_data(&content);
+            }
+        }
     }
 }
 
-// --- UI Construction ---
+fn apply_css_to_display(provider: &CssProvider) {
+    if let Some(display) = Display::default() {
+        gtk4::style_context_add_provider_for_display(
+            &display,
+            provider,
+            gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
+    }
+}
 
 /// Main entry point for building the Dock UI.
 pub fn build_ui(app: &Application, config: &Config) -> (ApplicationWindow, Label) {
     let window = create_window(app);
     setup_layer_shell(&window);
+    window.add_css_class(CLASS_DOCK_WINDOW);
 
     let (content, status_label) = create_dock_content();
 
@@ -67,8 +99,10 @@ fn create_dock_content() -> (Box, Label) {
         .margin_top(CONTENT_MARGIN)
         .margin_bottom(CONTENT_MARGIN)
         .build();
+    content.add_css_class(CLASS_DOCK_CONTENT);
 
     let status_label = Label::new(Some("Waiting for Hyprland..."));
+    status_label.add_css_class(CLASS_STATUS_LABEL);
     content.append(&status_label);
 
     (content, status_label)
@@ -91,6 +125,7 @@ fn setup_auto_hide(window: &ApplicationWindow, content: &Box) {
     let trigger_box = Box::builder()
         .height_request(TRIGGER_ZONE_HEIGHT)
         .build();
+    trigger_box.add_css_class(CLASS_TRIGGER_BOX);
 
     let root_box = Box::builder()
         .orientation(Orientation::Vertical)
@@ -109,7 +144,6 @@ fn attach_auto_hide_controllers(
     trigger: &Box,
     root: &Box,
 ) {
-    // Controller for revealing when hitting the bottom trigger
     let enter_controller = EventControllerMotion::new();
     let win_clone = window.clone();
     let rev_clone = revealer.clone();
@@ -119,7 +153,6 @@ fn attach_auto_hide_controllers(
     });
     trigger.add_controller(enter_controller);
 
-    // Controller for hiding when leaving the entire dock area
     let leave_controller = EventControllerMotion::new();
     let win_clone = window.clone();
     let rev_clone = revealer.clone();
