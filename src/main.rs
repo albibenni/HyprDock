@@ -31,12 +31,11 @@ fn fix_hyprland_socket() {
     let actual_socket_dir = Path::new(&xdg_runtime_dir).join("hypr").join(&signature);
     let expected_socket_dir = Path::new("/tmp/hypr").join(&signature);
 
-    // If expected exists but is not a symlink to actual, or is empty, we fix it
     if actual_socket_dir.exists() {
         let is_valid = if expected_socket_dir.exists() {
             match fs::read_link(&expected_socket_dir) {
                 Ok(target) => target == actual_socket_dir,
-                Err(_) => false, // It's a real dir, not a symlink
+                Err(_) => false,
             }
         } else {
             false
@@ -44,7 +43,7 @@ fn fix_hyprland_socket() {
 
         if !is_valid {
             println!("Fixing Hyprland socket path: symlinking /tmp/hypr/{} to {}", signature, actual_socket_dir.display());
-            let _ = fs::remove_dir_all(&expected_socket_dir); // Remove real dir or broken symlink
+            let _ = fs::remove_dir_all(&expected_socket_dir);
             let _ = fs::create_dir_all("/tmp/hypr");
             #[cfg(unix)]
             {

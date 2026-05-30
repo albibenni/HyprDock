@@ -19,6 +19,13 @@ struct WorkspaceRef {
     pub id: i32,
 }
 
+#[derive(Clone, Debug, Deserialize)]
+pub struct ActiveWindowInfo {
+    pub address: String,
+    pub title: String,
+    pub class: String,
+}
+
 impl WindowInfo {
     pub fn workspace(&self) -> String {
         self.workspace_data.id.to_string()
@@ -27,7 +34,7 @@ impl WindowInfo {
 
 pub enum HyprEvent {
     WorkspaceChanged(String),
-    ActiveWindowChanged(Option<String>),
+    ActiveWindowChanged(Option<String>), // address
     WindowListUpdate(Vec<WindowInfo>),
     Error(String),
 }
@@ -42,6 +49,10 @@ pub fn start_listener(tx: UnboundedSender<HyprEvent>) {
         while attempts < 5 {
             if let Ok(windows) = get_clients_via_hyprctl() {
                 let _ = tx_init.send(HyprEvent::WindowListUpdate(windows));
+                
+                if let Ok(active) = get_active_window_via_hyprctl() {
+                    let _ = tx_init.send(HyprEvent::ActiveWindowChanged(Some(active.address)));
+                }
                 return;
             }
             attempts += 1;
@@ -60,8 +71,13 @@ pub fn start_listener(tx: UnboundedSender<HyprEvent>) {
 
             let tx_active = tx.clone();
             listener.add_active_window_change_handler(move |data| {
-                let title = data.map(|d| d.window_title);
-                let _ = tx_active.send(HyprEvent::ActiveWindowChanged(title));
+                // The listener data only has title and class, not address.
+                // We fetch the address via hyprctl for accuracy.
+                if let Ok(active) = get_active_window_via_hyprctl() {
+                    let _ = tx_active.send(HyprEvent::ActiveWindowChanged(Some(active.address)));
+                } else {
+                    let _ = tx_active.send(HyprEvent::ActiveWindowChanged(None));
+                }
             });
 
             // Structural changes -> refresh list
@@ -69,6 +85,9 @@ pub fn start_listener(tx: UnboundedSender<HyprEvent>) {
             let refresh = move || {
                 if let Ok(windows) = get_clients_via_hyprctl() {
                     let _ = tx_refresh.send(HyprEvent::WindowListUpdate(windows));
+                }
+                if let Ok(active) = get_active_window_via_hyprctl() {
+                    let _ = tx_refresh.send(HyprEvent::ActiveWindowChanged(Some(active.address)));
                 }
             };
 
@@ -101,6 +120,19 @@ fn get_clients_via_hyprctl() -> Result<Vec<WindowInfo>, String> {
     }
 
     serde_json::from_slice::<Vec<WindowInfo>>(&output.stdout).map_err(|e| e.to_string())
+}
+
+fn get_active_window_via_hyprctl() -> Result<ActiveWindowInfo, String> {
+    let output = std::process::Command::new("hyprctl")
+        .args(["activewindow", "-j"])
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    if !output.status.success() {
+        return Err("hyprctl failed".to_string());
+    }
+
+    serde_json::from_slice::<ActiveWindowInfo>(&output.stdout).map_err(|e| e.to_string())
 }
 
 fn format_workspace_id(id: WorkspaceType) -> String {

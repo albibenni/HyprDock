@@ -11,6 +11,8 @@ use gtk4::{
 };
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use std::fs;
+use std::rc::Rc;
+use std::cell::RefCell;
 
 // --- Constants: Layout ---
 const DEFAULT_EXCLUSIVE_ZONE: i32 = 50;
@@ -27,7 +29,6 @@ const FALLBACK_ICON_NAME: &str = "application-x-executable";
 // --- Constants: CSS Classes ---
 const CLASS_DOCK_WINDOW: &str = "dock-window";
 const CLASS_DOCK_CONTENT: &str = "dock-content";
-const CLASS_STATUS_LABEL: &str = "status-label";
 const CLASS_TRIGGER_BOX: &str = "trigger-box";
 const CLASS_TASKBAR_ITEM: &str = "taskbar-item";
 const CLASS_TASKBAR_ICON: &str = "taskbar-icon";
@@ -37,17 +38,18 @@ const CLASS_LAUNCHER_LIST: &str = "launcher-list";
 const CLASS_LAUNCHER_ITEM: &str = "launcher-item";
 const CLASS_PINNED_APP: &str = "pinned-app";
 const CLASS_OPEN_APP: &str = "open-app";
+const CLASS_FOCUSED_APP: &str = "focused-app";
 
 // --- UI Components ---
 
 /// Handle to the UI widgets for state updates.
 pub struct DockUI {
     pub window: ApplicationWindow,
-    pub status_label: Label,
     pub taskbar_box: Box,
     pub pins_box: Box,
     pub launcher_popover: Popover,
-    pub launcher_list: ListBox,
+    pub active_address: RefCell<Option<String>>,
+    pub last_windows: RefCell<Vec<WindowInfo>>,
 }
 
 /// Initializes styling by loading internal and optional external CSS.
@@ -84,12 +86,12 @@ fn apply_css_to_display(provider: &CssProvider) {
 }
 
 /// Main entry point for building the Dock UI.
-pub fn build_ui(app: &Application, config: &Config) -> DockUI {
+pub fn build_ui(app: &Application, config: &Config) -> Rc<DockUI> {
     let window = create_window(app);
     setup_layer_shell(&window);
     window.add_css_class(CLASS_DOCK_WINDOW);
 
-    let (content, status_label, taskbar_box, pins_box, launcher_popover, launcher_list) = create_dock_content_layout(config);
+    let (content, taskbar_box, pins_box, launcher_popover) = create_dock_content_layout(config);
 
     if config.auto_hide {
         setup_auto_hide_behavior(&window, &content, &launcher_popover);
@@ -99,14 +101,14 @@ pub fn build_ui(app: &Application, config: &Config) -> DockUI {
 
     window.present();
 
-    DockUI {
+    Rc::new(DockUI {
         window,
-        status_label,
         taskbar_box,
         pins_box,
         launcher_popover,
-        launcher_list,
-    }
+        active_address: RefCell::new(None),
+        last_windows: RefCell::new(Vec::new()),
+    })
 }
 
 fn create_window(app: &Application) -> ApplicationWindow {
@@ -126,7 +128,7 @@ fn setup_layer_shell(window: &ApplicationWindow) {
     window.set_keyboard_mode(KeyboardMode::OnDemand);
 }
 
-fn create_dock_content_layout(config: &Config) -> (Box, Label, Box, Box, Popover, ListBox) {
+fn create_dock_content_layout(config: &Config) -> (Box, Box, Box, Popover) {
     let content = Box::builder()
         .orientation(Orientation::Horizontal)
         .spacing(CONTENT_SPACING)
@@ -137,7 +139,7 @@ fn create_dock_content_layout(config: &Config) -> (Box, Label, Box, Box, Popover
     content.add_css_class(CLASS_DOCK_CONTENT);
 
     // Launcher
-    let (launcher_button, launcher_popover, launcher_list) = create_launcher();
+    let (launcher_button, launcher_popover) = create_launcher();
     content.append(&launcher_button);
 
     // Pinned Apps (Preferred)
@@ -155,11 +157,7 @@ fn create_dock_content_layout(config: &Config) -> (Box, Label, Box, Box, Popover
         .build();
     content.append(&taskbar_box);
 
-    let status_label = Label::new(Some("Active Window"));
-    status_label.add_css_class(CLASS_STATUS_LABEL);
-    content.append(&status_label);
-
-    (content, status_label, taskbar_box, pins_box, launcher_popover, launcher_list)
+    (content, taskbar_box, pins_box, launcher_popover)
 }
 
 fn populate_pinned_apps(container: &Box, config: &Config) {
@@ -200,7 +198,7 @@ fn create_pinned_app_button(class: &str) -> Button {
     button
 }
 
-fn create_launcher() -> (MenuButton, Popover, ListBox) {
+fn create_launcher() -> (MenuButton, Popover) {
     let button = MenuButton::builder()
         .icon_name("start-here-symbolic")
         .build();
@@ -264,7 +262,7 @@ fn create_launcher() -> (MenuButton, Popover, ListBox) {
     popover.set_child(Some(&launcher_box));
     button.set_popover(Some(&popover));
 
-    (button, popover, list_box)
+    (button, popover)
 }
 
 fn populate_launcher_list(list_box: &ListBox, apps: &[AppItem], popover: &Popover) {
@@ -377,29 +375,33 @@ fn attach_auto_hide_controllers(
 // --- Event Handling ---
 
 /// Routes Hyprland events to the appropriate UI update logic.
-pub fn handle_event(event: HyprEvent, ui: &DockUI) {
+pub fn handle_event(event: HyprEvent, ui: &Rc<DockUI>) {
     match event {
-        HyprEvent::WorkspaceChanged(ws) => {
-            ui.status_label.set_text(&format!("Workspace: {}", ws));
+        HyprEvent::WorkspaceChanged(_) => {
+            // Nothing to do for now
         }
-        HyprEvent::ActiveWindowChanged(win) => {
-            let title = win.unwrap_or_else(|| "Desktop".to_string());
-            ui.status_label.set_text(&title);
+        HyprEvent::ActiveWindowChanged(addr) => {
+            *ui.active_address.borrow_mut() = addr;
+            let windows = ui.last_windows.borrow().clone();
+            update_taskbar(ui, windows);
         }
         HyprEvent::WindowListUpdate(windows) => {
+            *ui.last_windows.borrow_mut() = windows.clone();
             update_taskbar(ui, windows);
         }
         HyprEvent::Error(err) => {
-            ui.status_label.set_text(&format!("Error: {}", err));
+            eprintln!("Hyprland Error: {}", err);
         }
     }
 }
 
 fn update_taskbar(ui: &DockUI, windows: Vec<WindowInfo>) {
     clear_container(&ui.taskbar_box);
+    let active_addr = ui.active_address.borrow();
 
     for win in windows {
-        let item = create_taskbar_item(&win);
+        let is_focused = active_addr.as_ref() == Some(&win.address);
+        let item = create_taskbar_item(&win, is_focused);
         ui.taskbar_box.append(&item);
     }
 }
@@ -410,10 +412,13 @@ fn clear_container(container: &Box) {
     }
 }
 
-fn create_taskbar_item(win: &WindowInfo) -> Button {
+fn create_taskbar_item(win: &WindowInfo, is_focused: bool) -> Button {
     let button = Button::builder().build();
     button.add_css_class(CLASS_TASKBAR_ITEM);
     button.add_css_class(CLASS_OPEN_APP);
+    if is_focused {
+        button.add_css_class(CLASS_FOCUSED_APP);
+    }
     button.set_tooltip_text(Some(&win.title));
 
     let icon = Image::builder()
@@ -441,7 +446,15 @@ fn resolve_gicon(class: &str) -> Option<gio::Icon> {
     if class.is_empty() { return None; }
     let class_lower = class.to_lowercase();
     
-    // Use Gio AppInfo to find the icon
+    // Fast path theme lookup
+    if let Some(display) = Display::default() {
+        let icon_theme = IconTheme::for_display(&display);
+        if icon_theme.has_icon(&class_lower) {
+            return Some(gio::ThemedIcon::new(&class_lower).upcast());
+        }
+    }
+
+    // Defensive scan
     let apps = gio::AppInfo::all();
     for app in apps {
         // MATCH BY ID (e.g. "firefox")
