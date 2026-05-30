@@ -14,7 +14,7 @@
 
 .dock-separator {
     background-color: rgba(255, 255, 255, 0.1);
-    width: 1px;
+    min-width: 1px;
     margin: 8px 6px;
 }
 
@@ -24,40 +24,21 @@
     border-radius: 12px;
     padding: 6px;
     transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-    position: relative;
-}
-
-/* Open app dot indicator */
-.open-app {
-    /* No border-bottom anymore, we use a dot in the centered-app pseudo-element concept if possible, 
-       but for simplicity in GTK4 CSS, we can use a very thin centered border-bottom */
-    border-bottom: 2px solid transparent;
-}
-
-/* Focused app dot indicator */
-.focused-app {
-    background-color: rgba(255, 255, 255, 0.08);
-    box-shadow: 0 0 15px rgba(137, 180, 250, 0.4);
-}
-
-/* Using a subtle dot effect for active apps */
-.open-app::after {
-    content: "•";
-    color: rgba(137, 180, 250, 0.4);
-    font-size: 16px;
-    position: absolute;
-    bottom: -8px;
-    left: 45%;
-}
-
-.focused-app::after {
-    color: #89b4fa;
-    text-shadow: 0 0 5px #89b4fa;
 }
 
 .taskbar-item:hover {
     background-color: rgba(255, 255, 255, 0.12);
-    transform: translateY(-2px); /* Slight macOS-like lift */
+}
+
+/* macOS-style dot indicators using radial gradients */
+.open-app {
+    background-image: radial-gradient(circle at center 95%, rgba(137, 180, 250, 0.4) 2px, transparent 2px);
+}
+
+.focused-app {
+    background-color: rgba(255, 255, 255, 0.08);
+    box-shadow: 0 0 15px rgba(137, 180, 250, 0.4);
+    background-image: radial-gradient(circle at center 95%, #89b4fa 2px, transparent 2px);
 }
 
 .taskbar-icon {
