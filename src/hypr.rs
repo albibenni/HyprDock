@@ -70,7 +70,7 @@ pub fn start_listener(tx: UnboundedSender<HyprEvent>) {
             });
 
             let tx_active = tx.clone();
-            listener.add_active_window_change_handler(move |data| {
+            listener.add_active_window_change_handler(move |_data| {
                 // The listener data only has title and class, not address.
                 // We fetch the address via hyprctl for accuracy.
                 if let Ok(active) = get_active_window_via_hyprctl() {
