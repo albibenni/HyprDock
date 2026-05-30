@@ -5,6 +5,23 @@ use hyprdock::{hypr, ui, config};
 use std::fs;
 use std::env;
 use std::path::Path;
+use std::panic;
+
+fn setup_panic_hook() {
+    let default_hook = panic::take_hook();
+    panic::set_hook(Box::new(move |info| {
+        let payload = info.payload().downcast_ref::<&str>();
+        let msg = payload.unwrap_or(&"Unknown panic");
+        
+        // Suppress the annoying GLib null pointer assertion from cluttering the terminal
+        if msg.contains("assertion failed: !ptr.is_null()") {
+            // We ignore this because we catch it with catch_unwind in the code
+            return;
+        }
+        
+        default_hook(info);
+    }));
+}
 
 fn fix_hyprland_socket() {
     let signature = match env::var("HYPRLAND_INSTANCE_SIGNATURE") {
@@ -32,28 +49,12 @@ fn fix_hyprland_socket() {
 }
 
 fn load_config() -> config::Config {
-    let mut config = config::Config::default();
-
-    if let Some(proj_dirs) = config::get_project_dirs() {
-        let config_dir = proj_dirs.config_dir();
-        let config_path = config_dir.join("config.toml");
-
-        if config_path.exists() {
-            if let Ok(content) = fs::read_to_string(&config_path) {
-                if let Ok(loaded) = toml::from_str::<config::Config>(&content) {
-                    config = loaded;
-                }
-            }
-        } else {
-            let _ = fs::create_dir_all(config_dir);
-        }
-    }
-
+    let config = config::load_config();
     config
 }
 
 fn main() -> glib::ExitCode {
-    // Attempt to fix the socket path before the library tries to use it
+    setup_panic_hook();
     fix_hyprland_socket();
 
     let app = Application::builder()
@@ -61,7 +62,7 @@ fn main() -> glib::ExitCode {
         .build();
 
     app.connect_activate(|app| {
-        println!("HyprDock activating...");
+        println!("HyprDock: Activating Version 0.1.0-Polished");
         let config = load_config();
         ui::initialize_styling();
 

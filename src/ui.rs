@@ -51,7 +51,6 @@ pub struct DockUI {
 
 /// Initializes styling by loading internal and optional external CSS.
 pub fn initialize_styling() {
-    println!("UI: Initializing styling...");
     let provider = CssProvider::new();
     load_internal_css(&provider);
     load_external_css(&provider);
@@ -85,23 +84,18 @@ fn apply_css_to_display(provider: &CssProvider) {
 
 /// Main entry point for building the Dock UI.
 pub fn build_ui(app: &Application, config: &Config) -> DockUI {
-    println!("UI: Building UI...");
     let window = create_window(app);
     setup_layer_shell(&window);
     window.add_css_class(CLASS_DOCK_WINDOW);
 
-    println!("UI: Creating layout...");
     let (content, status_label, taskbar_box, pins_box, launcher_popover, launcher_list) = create_dock_content_layout(config);
 
     if config.auto_hide {
-        println!("UI: Setting up auto-hide...");
         setup_auto_hide_behavior(&window, &content, &launcher_popover);
     } else {
-        println!("UI: Setting up static layout...");
         setup_static_behavior(&window, &content);
     }
 
-    println!("UI: Presenting window...");
     window.present();
 
     DockUI {
@@ -142,12 +136,10 @@ fn create_dock_content_layout(config: &Config) -> (Box, Label, Box, Box, Popover
     content.add_css_class(CLASS_DOCK_CONTENT);
 
     // Launcher
-    println!("UI: Creating launcher...");
     let (launcher_button, launcher_popover, launcher_list) = create_launcher();
     content.append(&launcher_button);
 
     // Pinned Apps (Preferred)
-    println!("UI: Populating pinned apps...");
     let pins_box = Box::builder()
         .orientation(Orientation::Horizontal)
         .spacing(5)
@@ -156,7 +148,6 @@ fn create_dock_content_layout(config: &Config) -> (Box, Label, Box, Box, Popover
     content.append(&pins_box);
 
     // Taskbar
-    println!("UI: Creating taskbar...");
     let taskbar_box = Box::builder()
         .orientation(Orientation::Horizontal)
         .spacing(5)
@@ -265,7 +256,6 @@ fn create_launcher() -> (MenuButton, Popover, ListBox) {
     let list_box_init = list_box.clone();
     let popover_init = popover.clone();
     popover.connect_show(move |_| {
-        println!("UI: Launcher opened, populating...");
         let apps = launcher::get_all_apps();
         populate_launcher_list(&list_box_init, &apps, &popover_init);
     });
@@ -363,7 +353,6 @@ fn attach_auto_hide_controllers(
     let rev_clone = revealer.clone();
     enter_controller.connect_enter(move |_, _, _| {
         if !rev_clone.reveals_child() {
-            println!("Dock: Mouse entered trigger zone -> Revealing");
             rev_clone.set_reveal_child(true);
             win_clone.set_exclusive_zone(DEFAULT_EXCLUSIVE_ZONE);
         }
@@ -377,7 +366,6 @@ fn attach_auto_hide_controllers(
     leave_controller.connect_leave(move |_| {
         // ONLY hide if the launcher popover is NOT visible
         if rev_clone.reveals_child() && !popover_clone.is_visible() {
-            println!("Dock: Mouse left dock area -> Hiding");
             rev_clone.set_reveal_child(false);
             win_clone.set_exclusive_zone(0);
         }
@@ -460,30 +448,42 @@ fn resolve_gicon(class: &str) -> Option<gio::Icon> {
     if class.is_empty() { return None; }
     let class_lower = class.to_lowercase();
     
-    // Fast path theme lookup
+    // Use Gio AppInfo to find the icon
+    let apps = gio::AppInfo::all();
+    for app in apps {
+        // MATCH BY ID (e.g. "firefox")
+        if let Some(id) = std::panic::catch_unwind(|| app.id()).unwrap_or(None) {
+            if id.to_string().to_lowercase().contains(&class_lower) {
+                if let Ok(icon) = std::panic::catch_unwind(|| app.icon()) {
+                    if let Some(icon) = icon { return Some(icon); }
+                }
+            }
+        }
+
+        // MATCH BY EXEC (e.g. "/usr/bin/firefox")
+        if let Ok(exec) = std::panic::catch_unwind(|| app.executable()) {
+            if exec.to_string_lossy().to_lowercase().contains(&class_lower) {
+                if let Ok(icon) = std::panic::catch_unwind(|| app.icon()) {
+                    if let Some(icon) = icon { return Some(icon); }
+                }
+            }
+        }
+        
+        // MATCH BY NAME (e.g. "Firefox Web Browser")
+        if let Ok(name) = std::panic::catch_unwind(|| app.name()) {
+            if name.to_lowercase() == class_lower {
+                if let Ok(icon) = std::panic::catch_unwind(|| app.icon()) {
+                    if let Some(icon) = icon { return Some(icon); }
+                }
+            }
+        }
+    }
+
+    // Fallback: Check if the class name exists directly in the icon theme
     if let Some(display) = Display::default() {
         let icon_theme = IconTheme::for_display(&display);
         if icon_theme.has_icon(&class_lower) {
             return Some(gio::ThemedIcon::new(&class_lower).upcast());
-        }
-    }
-
-    // Defensive scan
-    let apps = gio::AppInfo::all();
-    for app in apps {
-        let id = std::panic::catch_unwind(|| app.id()).unwrap_or(None)
-            .map(|i| i.to_string().to_lowercase())
-            .unwrap_or_default();
-            
-        let name = std::panic::catch_unwind(|| app.name().to_lowercase()).unwrap_or_default();
-
-        let exec = std::panic::catch_unwind(|| app.executable().to_string_lossy().to_lowercase())
-            .unwrap_or_default();
-
-        if (!id.is_empty() && id.contains(&class_lower)) || exec.contains(&class_lower) || name == class_lower {
-            if let Ok(icon) = std::panic::catch_unwind(|| app.icon()) {
-                if let Some(icon) = icon { return Some(icon); }
-            }
         }
     }
 
