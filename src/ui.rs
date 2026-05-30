@@ -3,8 +3,8 @@ use crate::hypr::{HyprEvent, WindowInfo};
 use gtk4::gdk::Display;
 use gtk4::prelude::*;
 use gtk4::{
-    Application, ApplicationWindow, Box, Button, CssProvider, EventControllerMotion, Label,
-    Orientation, Revealer, RevealerTransitionType,
+    Application, ApplicationWindow, Box, Button, CssProvider, EventControllerMotion, IconTheme,
+    Image, Label, Orientation, Revealer, RevealerTransitionType,
 };
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use std::fs;
@@ -16,12 +16,17 @@ const CONTENT_SPACING: i32 = 10;
 const CONTENT_MARGIN: i32 = 8;
 const DOCK_NAMESPACE: &str = "hyprdock";
 
+// --- Constants: Icons ---
+const DEFAULT_ICON_SIZE: i32 = 24;
+const FALLBACK_ICON_NAME: &str = "application-x-executable";
+
 // --- Constants: CSS Classes ---
 const CLASS_DOCK_WINDOW: &str = "dock-window";
 const CLASS_DOCK_CONTENT: &str = "dock-content";
 const CLASS_STATUS_LABEL: &str = "status-label";
 const CLASS_TRIGGER_BOX: &str = "trigger-box";
 const CLASS_TASKBAR_ITEM: &str = "taskbar-item";
+const CLASS_TASKBAR_ICON: &str = "taskbar-icon";
 
 // --- UI Components ---
 
@@ -216,17 +221,43 @@ fn clear_container(container: &Box) {
 }
 
 fn create_taskbar_item(win: &WindowInfo) -> Button {
-    let button = Button::builder()
-        .label(&win.class)
-        .tooltip_text(&win.title)
-        .build();
-    
+    let button = Button::builder().build();
     button.add_css_class(CLASS_TASKBAR_ITEM);
-    
+    button.set_tooltip_text(Some(&win.title));
+
+    let content_box = Box::builder()
+        .orientation(Orientation::Horizontal)
+        .spacing(6)
+        .build();
+
+    let icon_name = resolve_icon_name(&win.class);
+    let icon = Image::builder()
+        .icon_name(icon_name)
+        .pixel_size(DEFAULT_ICON_SIZE)
+        .build();
+    icon.add_css_class(CLASS_TASKBAR_ICON);
+
+    let label = Label::new(Some(&win.class));
+
+    content_box.append(&icon);
+    content_box.append(&label);
+    button.set_child(Some(&content_box));
+
     let addr = win.address.clone();
     button.connect_clicked(move |_| {
         crate::hypr::focus_window(&addr);
     });
-    
+
     button
+}
+
+fn resolve_icon_name(class: &str) -> String {
+    let normalized = class.to_lowercase();
+    let icon_theme = IconTheme::for_display(&Display::default().expect("Could not get default display"));
+
+    if icon_theme.has_icon(&normalized) {
+        normalized
+    } else {
+        FALLBACK_ICON_NAME.to_string()
+    }
 }
