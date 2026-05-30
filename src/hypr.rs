@@ -2,6 +2,7 @@ use hyprland::data::{Client, Clients};
 use hyprland::dispatch::*;
 use hyprland::event_listener::EventListener;
 use hyprland::shared::{Address, HyprData, WorkspaceType};
+use std::panic;
 use tokio::sync::mpsc::UnboundedSender;
 
 #[derive(Clone, Debug)]
@@ -27,64 +28,93 @@ pub enum HyprEvent {
     WorkspaceChanged(String),
     ActiveWindowChanged(Option<String>),
     WindowListUpdate(Vec<WindowInfo>),
+    Error(String),
 }
 
 /// Starts the Hyprland event listener and sends initial state.
 pub fn start_listener(tx: UnboundedSender<HyprEvent>) {
-    send_window_list(&tx);
+    let tx_init = tx.clone();
+
+    // Attempt to send initial state safely
+    let _ = std::thread::spawn(move || {
+        if let Err(e) = safe_send_window_list(&tx_init) {
+            let _ = tx_init.send(HyprEvent::Error(format!("Initial sync failed: {}", e)));
+        }
+    });
 
     std::thread::spawn(move || {
-        let mut listener = EventListener::new();
-        register_handlers(&mut listener, tx);
+        // We wrap the entire listener logic to catch panics from the library
+        let result = panic::catch_unwind(panic::AssertUnwindSafe(move || {
+            let mut listener = EventListener::new();
+            register_handlers(&mut listener, tx.clone());
 
-        if let Err(e) = listener.start_listener() {
-            eprintln!("Hyprland listener error: {}", e);
+            if let Err(e) = listener.start_listener() {
+                let _ = tx.send(HyprEvent::Error(format!("Hyprland listener error: {}", e)));
+            }
+        }));
+
+        if let Err(_) = result {
+            eprintln!(
+                "Hyprland listener thread panicked. This usually means the Hyprland socket could not be found."
+            );
         }
     });
 }
 
+fn safe_send_window_list(tx: &UnboundedSender<HyprEvent>) -> Result<(), String> {
+    // catch_unwind because hyprland-rs might panic internally if socket is missing
+    let tx_clone = tx.clone();
+    let result = panic::catch_unwind(panic::AssertUnwindSafe(move || {
+        if let Ok(clients) = Clients::get() {
+            let windows: Vec<WindowInfo> = clients.into_iter().map(WindowInfo::from).collect();
+            let _ = tx_clone.send(HyprEvent::WindowListUpdate(windows));
+            Ok(())
+        } else {
+            Err("Failed to get clients from Hyprland".to_string())
+        }
+    }));
+
+    match result {
+        Ok(res) => res,
+        Err(_) => Err("Hyprland library panicked while fetching window list".to_string()),
+    }
+}
+
 fn register_handlers(listener: &mut EventListener, tx: UnboundedSender<HyprEvent>) {
-    // Workspace changes
     let tx_ws = tx.clone();
     listener.add_workspace_change_handler(move |id| {
         let _ = tx_ws.send(HyprEvent::WorkspaceChanged(format_workspace_id(id)));
     });
 
-    // Active window title changes
     let tx_active = tx.clone();
     listener.add_active_window_change_handler(move |data| {
         let title = data.map(|d| d.window_title);
         let _ = tx_active.send(HyprEvent::ActiveWindowChanged(title));
     });
 
-    // Full window list refreshes on structural changes
     register_refresh_handlers(listener, tx);
 }
 
 fn register_refresh_handlers(listener: &mut EventListener, tx: UnboundedSender<HyprEvent>) {
-    listener.add_window_open_handler({
-        let tx = tx.clone();
-        move |_| send_window_list(&tx)
+    let tx_open = tx.clone();
+    listener.add_window_open_handler(move |_| {
+        let _ = safe_send_window_list(&tx_open);
     });
-    listener.add_window_close_handler({
-        let tx = tx.clone();
-        move |_| send_window_list(&tx)
-    });
-    listener.add_window_moved_handler({
-        let tx = tx.clone();
-        move |_| send_window_list(&tx)
-    });
-    listener.add_active_window_change_handler({
-        let tx = tx.clone();
-        move |_| send_window_list(&tx)
-    });
-}
 
-fn send_window_list(tx: &UnboundedSender<HyprEvent>) {
-    if let Ok(clients) = Clients::get() {
-        let windows: Vec<WindowInfo> = clients.into_iter().map(WindowInfo::from).collect();
-        let _ = tx.send(HyprEvent::WindowListUpdate(windows));
-    }
+    let tx_close = tx.clone();
+    listener.add_window_close_handler(move |_| {
+        let _ = safe_send_window_list(&tx_close);
+    });
+
+    let tx_moved = tx.clone();
+    listener.add_window_moved_handler(move |_| {
+        let _ = safe_send_window_list(&tx_moved);
+    });
+
+    let tx_active = tx.clone();
+    listener.add_active_window_change_handler(move |_| {
+        let _ = safe_send_window_list(&tx_active);
+    });
 }
 
 fn format_workspace_id(id: WorkspaceType) -> String {
@@ -95,8 +125,12 @@ fn format_workspace_id(id: WorkspaceType) -> String {
     }
 }
 
-/// Dispatches a focus command to Hyprland for the given window address.
 pub fn focus_window(address: &str) {
     let addr = Address::new(address);
-    let _ = Dispatch::call(DispatchType::FocusWindow(WindowIdentifier::Address(addr)));
+    // Dispatches are also potentially panicky if socket is gone
+    let _ = panic::catch_unwind(panic::AssertUnwindSafe(move || {
+        let _ = Dispatch::call(DispatchType::FocusWindow(WindowIdentifier::Address(
+            addr.clone(),
+        )));
+    }));
 }

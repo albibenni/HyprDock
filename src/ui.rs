@@ -13,7 +13,7 @@ use std::fs;
 
 // --- Constants: Layout ---
 const DEFAULT_EXCLUSIVE_ZONE: i32 = 50;
-const TRIGGER_ZONE_HEIGHT: i32 = 1;
+const TRIGGER_ZONE_HEIGHT: i32 = 3;
 const CONTENT_SPACING: i32 = 10;
 const CONTENT_MARGIN: i32 = 8;
 const DOCK_NAMESPACE: &str = "hyprdock";
@@ -293,8 +293,11 @@ fn attach_auto_hide_controllers(
     let win_clone = window.clone();
     let rev_clone = revealer.clone();
     enter_controller.connect_enter(move |_, _, _| {
-        rev_clone.set_reveal_child(true);
-        win_clone.set_exclusive_zone(DEFAULT_EXCLUSIVE_ZONE);
+        if !rev_clone.reveals_child() {
+            println!("Dock: Mouse entered trigger zone -> Revealing");
+            rev_clone.set_reveal_child(true);
+            win_clone.set_exclusive_zone(DEFAULT_EXCLUSIVE_ZONE);
+        }
     });
     trigger.add_controller(enter_controller);
 
@@ -302,8 +305,11 @@ fn attach_auto_hide_controllers(
     let win_clone = window.clone();
     let rev_clone = revealer.clone();
     leave_controller.connect_leave(move |_| {
-        rev_clone.set_reveal_child(false);
-        win_clone.set_exclusive_zone(0);
+        if rev_clone.reveals_child() {
+            println!("Dock: Mouse left dock area -> Hiding");
+            rev_clone.set_reveal_child(false);
+            win_clone.set_exclusive_zone(0);
+        }
     });
     root.add_controller(leave_controller);
 }
@@ -322,6 +328,9 @@ pub fn handle_event(event: HyprEvent, ui: &DockUI) {
         }
         HyprEvent::WindowListUpdate(windows) => {
             update_taskbar(ui, windows);
+        }
+        HyprEvent::Error(err) => {
+            ui.status_label.set_text(&format!("Error: {}", err));
         }
     }
 }

@@ -1,5 +1,5 @@
-use serde::Deserialize;
 use directories::ProjectDirs;
+use serde::Deserialize;
 use std::fs;
 use std::path::Path;
 
@@ -19,7 +19,7 @@ pub fn load_config() -> Config {
 
     if let Some(proj_dirs) = get_project_dirs() {
         let config_path = proj_dirs.config_dir().join("config.toml");
-        
+
         if config_path.exists() {
             if let Ok(content) = fs::read_to_string(&config_path) {
                 if let Ok(loaded) = toml::from_str::<Config>(&content) {
