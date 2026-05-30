@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+glib = "0.22.7"
 gtk4 = "0.11.3"
 gtk4-layer-shell = "0.8.0"
 hyprland = "0.3.13"
