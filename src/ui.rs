@@ -42,6 +42,7 @@ pub struct DockUI {
     pub window: ApplicationWindow,
     pub status_label: Label,
     pub taskbar_box: Box,
+    pub launcher_popover: Popover,
 }
 
 /// Initializes styling by loading internal and optional external CSS.
@@ -83,10 +84,10 @@ pub fn build_ui(app: &Application, config: &Config) -> DockUI {
     setup_layer_shell(&window);
     window.add_css_class(CLASS_DOCK_WINDOW);
 
-    let (content, status_label, taskbar_box) = create_dock_content_layout();
+    let (content, status_label, taskbar_box, launcher_popover) = create_dock_content_layout();
 
     if config.auto_hide {
-        setup_auto_hide_behavior(&window, &content);
+        setup_auto_hide_behavior(&window, &content, &launcher_popover);
     } else {
         setup_static_behavior(&window, &content);
     }
@@ -97,6 +98,7 @@ pub fn build_ui(app: &Application, config: &Config) -> DockUI {
         window,
         status_label,
         taskbar_box,
+        launcher_popover,
     }
 }
 
@@ -117,7 +119,7 @@ fn setup_layer_shell(window: &ApplicationWindow) {
     window.set_keyboard_mode(KeyboardMode::OnDemand);
 }
 
-fn create_dock_content_layout() -> (Box, Label, Box) {
+fn create_dock_content_layout() -> (Box, Label, Box, Popover) {
     let content = Box::builder()
         .orientation(Orientation::Horizontal)
         .spacing(CONTENT_SPACING)
@@ -128,7 +130,7 @@ fn create_dock_content_layout() -> (Box, Label, Box) {
     content.add_css_class(CLASS_DOCK_CONTENT);
 
     // Launcher
-    let launcher_button = create_launcher_button();
+    let (launcher_button, launcher_popover) = create_launcher();
     content.append(&launcher_button);
 
     let taskbar_box = Box::builder()
@@ -141,10 +143,10 @@ fn create_dock_content_layout() -> (Box, Label, Box) {
     status_label.add_css_class(CLASS_STATUS_LABEL);
     content.append(&status_label);
 
-    (content, status_label, taskbar_box)
+    (content, status_label, taskbar_box, launcher_popover)
 }
 
-fn create_launcher_button() -> MenuButton {
+fn create_launcher() -> (MenuButton, Popover) {
     let button = MenuButton::builder()
         .icon_name("start-here-symbolic")
         .build();
@@ -204,7 +206,7 @@ fn create_launcher_button() -> MenuButton {
     popover.set_child(Some(&launcher_box));
     button.set_popover(Some(&popover));
 
-    button
+    (button, popover)
 }
 
 fn populate_launcher_list(list_box: &ListBox, apps: &[AppItem], popover: &Popover) {
@@ -258,7 +260,7 @@ fn setup_static_behavior(window: &ApplicationWindow, content: &Box) {
     window.set_child(Some(content));
 }
 
-fn setup_auto_hide_behavior(window: &ApplicationWindow, content: &Box) {
+fn setup_auto_hide_behavior(window: &ApplicationWindow, content: &Box, popover: &Popover) {
     window.set_exclusive_zone(0);
 
     let revealer = Revealer::builder()
@@ -280,7 +282,7 @@ fn setup_auto_hide_behavior(window: &ApplicationWindow, content: &Box) {
     root_box.append(&trigger_box);
     window.set_child(Some(&root_box));
 
-    attach_auto_hide_controllers(window, &revealer, &trigger_box, &root_box);
+    attach_auto_hide_controllers(window, &revealer, &trigger_box, &root_box, popover);
 }
 
 fn attach_auto_hide_controllers(
@@ -288,6 +290,7 @@ fn attach_auto_hide_controllers(
     revealer: &Revealer,
     trigger: &Box,
     root: &Box,
+    popover: &Popover,
 ) {
     let enter_controller = EventControllerMotion::new();
     let win_clone = window.clone();
@@ -304,8 +307,10 @@ fn attach_auto_hide_controllers(
     let leave_controller = EventControllerMotion::new();
     let win_clone = window.clone();
     let rev_clone = revealer.clone();
+    let popover_clone = popover.clone();
     leave_controller.connect_leave(move |_| {
-        if rev_clone.reveals_child() {
+        // ONLY hide if the launcher popover is NOT visible
+        if rev_clone.reveals_child() && !popover_clone.is_visible() {
             println!("Dock: Mouse left dock area -> Hiding");
             rev_clone.set_reveal_child(false);
             win_clone.set_exclusive_zone(0);
