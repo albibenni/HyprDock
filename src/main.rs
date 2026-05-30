@@ -18,8 +18,8 @@ fn main() -> glib::ExitCode {
         // 3. Create a Tokio unbounded channel
         let (tx, mut rx) = mpsc::unbounded_channel::<hypr::HyprEvent>();
 
-        // 4. Build the UI and get a reference to the label we want to update
-        let (_window, status_label) = ui::build_ui(app, &config);
+        // 4. Build the UI and get the UI handle
+        let ui_handle = ui::build_ui(app, &config);
 
         // 5. Start the Hyprland listener in a standard thread, passing the sender
         hypr::start_listener(tx);
@@ -28,7 +28,7 @@ fn main() -> glib::ExitCode {
         glib::MainContext::default().spawn_local(async move {
             while let Some(event) = rx.recv().await {
                 // This block executes safely on the main UI thread
-                ui::handle_event(event, &status_label);
+                ui::handle_event(event, &ui_handle);
             }
         });
     });

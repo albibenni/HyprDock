@@ -15,6 +15,16 @@
     font-weight: bold;
 }
 
-.trigger-box {
-    background: transparent;
+.taskbar-item {
+    background-color: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    padding: 2px 8px;
+    color: #cdd6f4;
+    transition: all 0.2s ease;
+}
+
+.taskbar-item:hover {
+    background-color: rgba(255, 255, 255, 0.15);
+    border-color: rgba(255, 255, 255, 0.3);
 }

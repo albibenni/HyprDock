@@ -1,10 +1,10 @@
-use crate::hypr::HyprEvent;
 use crate::config::Config;
+use crate::hypr::{HyprEvent, WindowInfo};
 use gtk4::gdk::Display;
 use gtk4::prelude::*;
 use gtk4::{
-    Application, ApplicationWindow, Box, CssProvider, EventControllerMotion, Label, Orientation,
-    Revealer, RevealerTransitionType,
+    Application, ApplicationWindow, Box, Button, CssProvider, EventControllerMotion, Label,
+    Orientation, Revealer, RevealerTransitionType,
 };
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use std::fs;
@@ -12,8 +12,8 @@ use std::fs;
 // --- Constants: Layout ---
 const DEFAULT_EXCLUSIVE_ZONE: i32 = 50;
 const TRIGGER_ZONE_HEIGHT: i32 = 1;
-const CONTENT_SPACING: i32 = 20;
-const CONTENT_MARGIN: i32 = 10;
+const CONTENT_SPACING: i32 = 10;
+const CONTENT_MARGIN: i32 = 8;
 const DOCK_NAMESPACE: &str = "hyprdock";
 
 // --- Constants: CSS Classes ---
@@ -21,8 +21,16 @@ const CLASS_DOCK_WINDOW: &str = "dock-window";
 const CLASS_DOCK_CONTENT: &str = "dock-content";
 const CLASS_STATUS_LABEL: &str = "status-label";
 const CLASS_TRIGGER_BOX: &str = "trigger-box";
+const CLASS_TASKBAR_ITEM: &str = "taskbar-item";
 
-// --- UI Construction ---
+// --- UI Components ---
+
+/// Handle to the UI widgets for state updates.
+pub struct DockUI {
+    pub window: ApplicationWindow,
+    pub status_label: Label,
+    pub taskbar_box: Box,
+}
 
 /// Initializes styling by loading internal and optional external CSS.
 pub fn initialize_styling() {
@@ -58,21 +66,26 @@ fn apply_css_to_display(provider: &CssProvider) {
 }
 
 /// Main entry point for building the Dock UI.
-pub fn build_ui(app: &Application, config: &Config) -> (ApplicationWindow, Label) {
+pub fn build_ui(app: &Application, config: &Config) -> DockUI {
     let window = create_window(app);
     setup_layer_shell(&window);
     window.add_css_class(CLASS_DOCK_WINDOW);
 
-    let (content, status_label) = create_dock_content();
+    let (content, status_label, taskbar_box) = create_dock_content_layout();
 
     if config.auto_hide {
-        setup_auto_hide(&window, &content);
+        setup_auto_hide_behavior(&window, &content);
     } else {
-        setup_static_dock(&window, &content);
+        setup_static_behavior(&window, &content);
     }
 
     window.present();
-    (window, status_label)
+
+    DockUI {
+        window,
+        status_label,
+        taskbar_box,
+    }
 }
 
 fn create_window(app: &Application) -> ApplicationWindow {
@@ -91,7 +104,7 @@ fn setup_layer_shell(window: &ApplicationWindow) {
     window.set_anchor(Edge::Right, true);
 }
 
-fn create_dock_content() -> (Box, Label) {
+fn create_dock_content_layout() -> (Box, Label, Box) {
     let content = Box::builder()
         .orientation(Orientation::Horizontal)
         .spacing(CONTENT_SPACING)
@@ -101,19 +114,25 @@ fn create_dock_content() -> (Box, Label) {
         .build();
     content.add_css_class(CLASS_DOCK_CONTENT);
 
-    let status_label = Label::new(Some("Waiting for Hyprland..."));
+    let taskbar_box = Box::builder()
+        .orientation(Orientation::Horizontal)
+        .spacing(5)
+        .build();
+    content.append(&taskbar_box);
+
+    let status_label = Label::new(Some("HyprDock"));
     status_label.add_css_class(CLASS_STATUS_LABEL);
     content.append(&status_label);
 
-    (content, status_label)
+    (content, status_label, taskbar_box)
 }
 
-fn setup_static_dock(window: &ApplicationWindow, content: &Box) {
+fn setup_static_behavior(window: &ApplicationWindow, content: &Box) {
     window.set_exclusive_zone(DEFAULT_EXCLUSIVE_ZONE);
     window.set_child(Some(content));
 }
 
-fn setup_auto_hide(window: &ApplicationWindow, content: &Box) {
+fn setup_auto_hide_behavior(window: &ApplicationWindow, content: &Box) {
     window.set_exclusive_zone(0);
 
     let revealer = Revealer::builder()
@@ -165,13 +184,49 @@ fn attach_auto_hide_controllers(
 
 // --- Event Handling ---
 
-pub fn handle_event(event: HyprEvent, label: &Label) {
+/// Routes Hyprland events to the appropriate UI update logic.
+pub fn handle_event(event: HyprEvent, ui: &DockUI) {
     match event {
         HyprEvent::WorkspaceChanged(ws) => {
-            label.set_text(&format!("Workspace: {}", ws));
+            ui.status_label.set_text(&format!("Workspace: {}", ws));
         }
         HyprEvent::ActiveWindowChanged(win) => {
-            label.set_text(&format!("Active: {}", win));
+            let title = win.unwrap_or_else(|| "Desktop".to_string());
+            ui.status_label.set_text(&title);
+        }
+        HyprEvent::WindowListUpdate(windows) => {
+            update_taskbar(ui, windows);
         }
     }
+}
+
+fn update_taskbar(ui: &DockUI, windows: Vec<WindowInfo>) {
+    clear_container(&ui.taskbar_box);
+
+    for win in windows {
+        let item = create_taskbar_item(&win);
+        ui.taskbar_box.append(&item);
+    }
+}
+
+fn clear_container(container: &Box) {
+    while let Some(child) = container.first_child() {
+        container.remove(&child);
+    }
+}
+
+fn create_taskbar_item(win: &WindowInfo) -> Button {
+    let button = Button::builder()
+        .label(&win.class)
+        .tooltip_text(&win.title)
+        .build();
+    
+    button.add_css_class(CLASS_TASKBAR_ITEM);
+    
+    let addr = win.address.clone();
+    button.connect_clicked(move |_| {
+        crate::hypr::focus_window(&addr);
+    });
+    
+    button
 }
