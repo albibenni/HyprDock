@@ -12,13 +12,7 @@ fn setup_panic_hook() {
     panic::set_hook(Box::new(move |info| {
         let payload = info.payload().downcast_ref::<&str>();
         let msg = payload.unwrap_or(&"Unknown panic");
-        
-        // Suppress the annoying GLib null pointer assertion from cluttering the terminal
-        if msg.contains("assertion failed: !ptr.is_null()") {
-            // We ignore this because we catch it with catch_unwind in the code
-            return;
-        }
-        
+        if msg.contains("assertion failed: !ptr.is_null()") { return; }
         default_hook(info);
     }));
 }
@@ -37,20 +31,28 @@ fn fix_hyprland_socket() {
     let actual_socket_dir = Path::new(&xdg_runtime_dir).join("hypr").join(&signature);
     let expected_socket_dir = Path::new("/tmp/hypr").join(&signature);
 
-    if !expected_socket_dir.exists() && actual_socket_dir.exists() {
-        println!("Fixing Hyprland socket path: symlinking /tmp/hypr/{} to {}", signature, actual_socket_dir.display());
-        let _ = fs::create_dir_all("/tmp/hypr");
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::symlink;
-            let _ = symlink(actual_socket_dir, expected_socket_dir);
+    // If expected exists but is not a symlink to actual, or is empty, we fix it
+    if actual_socket_dir.exists() {
+        let is_valid = if expected_socket_dir.exists() {
+            match fs::read_link(&expected_socket_dir) {
+                Ok(target) => target == actual_socket_dir,
+                Err(_) => false, // It's a real dir, not a symlink
+            }
+        } else {
+            false
+        };
+
+        if !is_valid {
+            println!("Fixing Hyprland socket path: symlinking /tmp/hypr/{} to {}", signature, actual_socket_dir.display());
+            let _ = fs::remove_dir_all(&expected_socket_dir); // Remove real dir or broken symlink
+            let _ = fs::create_dir_all("/tmp/hypr");
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::symlink;
+                let _ = symlink(actual_socket_dir, expected_socket_dir);
+            }
         }
     }
-}
-
-fn load_config() -> config::Config {
-    let config = config::load_config();
-    config
 }
 
 fn main() -> glib::ExitCode {
@@ -63,7 +65,7 @@ fn main() -> glib::ExitCode {
 
     app.connect_activate(|app| {
         println!("HyprDock: Activating Version 0.1.0-Polished");
-        let config = load_config();
+        let config = config::load_config();
         ui::initialize_styling();
 
         let (tx, mut rx) = mpsc::unbounded_channel::<hypr::HyprEvent>();
