@@ -13,7 +13,7 @@ use std::fs;
 
 // --- Constants: Layout ---
 const DEFAULT_EXCLUSIVE_ZONE: i32 = 50;
-const TRIGGER_ZONE_HEIGHT: i32 = 3;
+const TRIGGER_ZONE_HEIGHT: i32 = 5;
 const CONTENT_SPACING: i32 = 10;
 const CONTENT_MARGIN: i32 = 8;
 const DOCK_NAMESPACE: &str = "hyprdock";
@@ -34,6 +34,7 @@ const CLASS_LAUNCHER_BUTTON: &str = "launcher-button";
 const CLASS_LAUNCHER_POPOVER: &str = "launcher-popover";
 const CLASS_LAUNCHER_LIST: &str = "launcher-list";
 const CLASS_LAUNCHER_ITEM: &str = "launcher-item";
+const CLASS_PINNED_APP: &str = "pinned-app";
 
 // --- UI Components ---
 
@@ -42,6 +43,7 @@ pub struct DockUI {
     pub window: ApplicationWindow,
     pub status_label: Label,
     pub taskbar_box: Box,
+    pub pins_box: Box,
     pub launcher_popover: Popover,
 }
 
@@ -84,7 +86,7 @@ pub fn build_ui(app: &Application, config: &Config) -> DockUI {
     setup_layer_shell(&window);
     window.add_css_class(CLASS_DOCK_WINDOW);
 
-    let (content, status_label, taskbar_box, launcher_popover) = create_dock_content_layout();
+    let (content, status_label, taskbar_box, pins_box, launcher_popover) = create_dock_content_layout(config);
 
     if config.auto_hide {
         setup_auto_hide_behavior(&window, &content, &launcher_popover);
@@ -98,6 +100,7 @@ pub fn build_ui(app: &Application, config: &Config) -> DockUI {
         window,
         status_label,
         taskbar_box,
+        pins_box,
         launcher_popover,
     }
 }
@@ -119,7 +122,7 @@ fn setup_layer_shell(window: &ApplicationWindow) {
     window.set_keyboard_mode(KeyboardMode::OnDemand);
 }
 
-fn create_dock_content_layout() -> (Box, Label, Box, Popover) {
+fn create_dock_content_layout(config: &Config) -> (Box, Label, Box, Box, Popover) {
     let content = Box::builder()
         .orientation(Orientation::Horizontal)
         .spacing(CONTENT_SPACING)
@@ -133,17 +136,64 @@ fn create_dock_content_layout() -> (Box, Label, Box, Popover) {
     let (launcher_button, launcher_popover) = create_launcher();
     content.append(&launcher_button);
 
+    // Pinned Apps (Preferred)
+    let pins_box = Box::builder()
+        .orientation(Orientation::Horizontal)
+        .spacing(5)
+        .build();
+    populate_pinned_apps(&pins_box, config);
+    content.append(&pins_box);
+
+    // Separator (could be a simple thin widget if needed)
+
+    // Taskbar
     let taskbar_box = Box::builder()
         .orientation(Orientation::Horizontal)
         .spacing(5)
         .build();
     content.append(&taskbar_box);
 
-    let status_label = Label::new(Some("HyprDock"));
+    let status_label = Label::new(Some("Active Window"));
     status_label.add_css_class(CLASS_STATUS_LABEL);
     content.append(&status_label);
 
-    (content, status_label, taskbar_box, launcher_popover)
+    (content, status_label, taskbar_box, pins_box, launcher_popover)
+}
+
+fn populate_pinned_apps(container: &Box, config: &Config) {
+    for class in &config.pinned_apps {
+        let pin = create_pinned_app_button(class);
+        container.append(&pin);
+    }
+}
+
+fn create_pinned_app_button(class: &str) -> Button {
+    let button = Button::builder().build();
+    button.add_css_class(CLASS_TASKBAR_ITEM);
+    button.add_css_class(CLASS_PINNED_APP);
+    button.set_tooltip_text(Some(class));
+
+    let icon_name = resolve_icon_name(class);
+    let icon = Image::builder()
+        .icon_name(icon_name)
+        .pixel_size(DEFAULT_ICON_SIZE)
+        .build();
+    icon.add_css_class(CLASS_TASKBAR_ICON);
+
+    button.set_child(Some(&icon));
+
+    let class_clone = class.to_string();
+    button.connect_clicked(move |_| {
+        if let Some(addr) = crate::hypr::get_first_window_by_class(&class_clone) {
+            println!("Pin: Focusing existing window for {}", class_clone);
+            crate::hypr::focus_window(&addr);
+        } else {
+            println!("Pin: Launching new instance of {}", class_clone);
+            crate::launcher::launch_app_by_class(&class_clone);
+        }
+    });
+
+    button
 }
 
 fn create_launcher() -> (MenuButton, Popover) {

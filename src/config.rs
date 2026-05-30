@@ -5,12 +5,29 @@ use std::path::Path;
 
 #[derive(Deserialize, Clone)]
 pub struct Config {
+    #[serde(default = "default_auto_hide")]
     pub auto_hide: bool,
+    #[serde(default = "default_pinned_apps")]
+    pub pinned_apps: Vec<String>,
+}
+
+fn default_auto_hide() -> bool {
+    true
+}
+fn default_pinned_apps() -> Vec<String> {
+    vec![
+        "firefox".to_string(),
+        "alacritty".to_string(),
+        "thunar".to_string(),
+    ]
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Self { auto_hide: true }
+        Self {
+            auto_hide: default_auto_hide(),
+            pinned_apps: default_pinned_apps(),
+        }
     }
 }
 
@@ -18,14 +35,14 @@ pub fn load_config() -> Config {
     let mut config = Config::default();
 
     if let Some(proj_dirs) = get_project_dirs() {
-        let config_path = proj_dirs.config_dir().join("config.toml");
+        let config_dir = proj_dirs.config_dir();
+        let config_path = config_dir.join("config.toml");
 
         if config_path.exists() {
             if let Ok(content) = fs::read_to_string(&config_path) {
-                if let Ok(loaded) = toml::from_str::<Config>(&content) {
-                    config = loaded;
-                } else {
-                    eprintln!("Failed to parse config file: {:?}", config_path);
+                match toml::from_str::<Config>(&content) {
+                    Ok(loaded) => config = loaded,
+                    Err(e) => eprintln!("Failed to parse config file (using defaults): {}", e),
                 }
             }
         } else {

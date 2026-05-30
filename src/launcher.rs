@@ -28,3 +28,24 @@ pub fn launch_app(app_name: &str) {
         let _ = app.launch(&[], gio::AppLaunchContext::NONE);
     }
 }
+
+pub fn launch_app_by_class(class: &str) {
+    let class_lower = class.to_lowercase();
+    let apps = gio::AppInfo::all();
+    
+    // Attempt to match by ID or executable name
+    if let Some(app) = apps.into_iter().find(|a| {
+        let id_match = a.id()
+            .map(|id| id.to_string().to_lowercase().contains(&class_lower))
+            .unwrap_or(false);
+        
+        let exec_match = a.executable()
+            .to_string_lossy()
+            .to_lowercase()
+            .contains(&class_lower);
+            
+        id_match || exec_match
+    }) {
+        let _ = app.launch(&[], gio::AppLaunchContext::NONE);
+    }
+}
