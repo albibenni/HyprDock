@@ -1,5 +1,5 @@
 use gtk4::prelude::*;
-use gtk4::{Box, Revealer, Orientation, RevealerTransitionType};
+use gtk4::{Box, Revealer, Orientation, RevealerTransitionType, Popover};
 use gtk4_layer_shell::LayerShell;
 use crate::ui::constants::*;
 use crate::ui::DockUI;
@@ -21,6 +21,7 @@ pub fn setup_auto_hide(ui: &Rc<DockUI>, content: &Box) {
     window.set_child(Some(&root_box));
 
     attach_auto_hide_logic(ui, &revealer, &trigger_box, &root_box, config.exclusive_zone);
+    setup_popover_hide_watchers(ui, &revealer);
 }
 
 fn attach_auto_hide_logic(ui: &Rc<DockUI>, revealer: &Revealer, trigger: &Box, root: &Box, zone: i32) {
@@ -54,23 +55,46 @@ fn attach_auto_hide_logic(ui: &Rc<DockUI>, revealer: &Revealer, trigger: &Box, r
     let ui_leave = ui.clone();
     let rev_hide = revealer.clone();
     leave_root.connect_leave(move |_| {
-        let uil = ui_leave.clone();
-        let rh = rev_hide.clone();
-        
-        // Use 800ms for a better UX while maintaining tooltip stability
-        let id = glib::timeout_add_local(std::time::Duration::from_millis(800), move || {
-            // Check visibility of ALL popovers
-            let launcher_visible = uil.launcher_popover.is_visible();
-            let context_visible = uil.context_menu.is_visible();
-
-            if rh.reveals_child() && !launcher_visible && !context_visible {
-                rh.set_reveal_child(false);
-                uil.window.set_exclusive_zone(0);
-            }
-            *uil.hide_timeout.borrow_mut() = None;
-            glib::ControlFlow::Break
-        });
-        *ui_leave.hide_timeout.borrow_mut() = Some(id);
+        trigger_hide_timeout(&ui_leave, &rev_hide, 500); // Reduced to 500ms for snappier feel
     });
     root.add_controller(leave_root);
+}
+
+/// Starts a timer to hide the dock if no popovers are open.
+fn trigger_hide_timeout(ui: &Rc<DockUI>, revealer: &Revealer, ms: u32) {
+    // Cancel existing
+    if let Some(id) = ui.hide_timeout.borrow_mut().take() { id.remove(); }
+
+    let uil = ui.clone();
+    let rh = revealer.clone();
+    
+    let id = glib::timeout_add_local(std::time::Duration::from_millis(ms as u64), move || {
+        let launcher_visible = uil.launcher_popover.is_visible();
+        let context_visible = uil.context_menu.is_visible();
+
+        if rh.reveals_child() && !launcher_visible && !context_visible {
+            // Check if mouse is actually still outside (safety check)
+            rh.set_reveal_child(false);
+            uil.window.set_exclusive_zone(0);
+        }
+        *uil.hide_timeout.borrow_mut() = None;
+        glib::ControlFlow::Break
+    });
+    *ui.hide_timeout.borrow_mut() = Some(id);
+}
+
+/// Watches for popovers closing and hides the dock if the mouse is already gone.
+fn setup_popover_hide_watchers(ui: &Rc<DockUI>, revealer: &Revealer) {
+    let watch_popover = |popover: &Popover, ui: &Rc<DockUI>, rev: &Revealer| {
+        let ui_c = ui.clone();
+        let rev_c = rev.clone();
+        popover.connect_closed(move |_| {
+            // When a menu closes, we might need to hide the dock immediately 
+            // if the mouse is already outside.
+            trigger_hide_timeout(&ui_c, &rev_c, 100); // Quick 100ms check
+        });
+    };
+
+    watch_popover(&ui.launcher_popover, ui, revealer);
+    watch_popover(&ui.context_menu, ui, revealer);
 }
