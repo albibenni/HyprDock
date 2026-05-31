@@ -20,11 +20,11 @@ pub fn setup_auto_hide(ui: &Rc<DockUI>, content: &Box) {
     root_box.append(&trigger_box);
     window.set_child(Some(&root_box));
 
-    attach_auto_hide_logic(ui, &revealer, &trigger_box, &root_box, config.exclusive_zone);
+    attach_auto_hide_logic(ui, &revealer, &trigger_box, &root_box);
     setup_popover_hide_watchers(ui, &revealer);
 }
 
-fn attach_auto_hide_logic(ui: &Rc<DockUI>, revealer: &Revealer, trigger: &Box, root: &Box, zone: i32) {
+fn attach_auto_hide_logic(ui: &Rc<DockUI>, revealer: &Revealer, trigger: &Box, root: &Box) {
     let cancel_hide = |ui: &Rc<DockUI>| {
         if let Some(id) = ui.hide_timeout.borrow_mut().take() { id.remove(); }
     };
@@ -45,7 +45,12 @@ fn attach_auto_hide_logic(ui: &Rc<DockUI>, revealer: &Revealer, trigger: &Box, r
         cancel_hide(&ui_trigger);
         if !rev_trigger.reveals_child() {
             rev_trigger.set_reveal_child(true);
-            ui_trigger.window.set_exclusive_zone(zone);
+            
+            // IF NOT in overlay mode, we set the exclusive zone to push windows.
+            // IF in overlay mode (default), we keep it at 0 to stay "over" windows.
+            if !ui_trigger.config.borrow().overlay {
+                ui_trigger.window.set_exclusive_zone(ui_trigger.config.borrow().exclusive_zone);
+            }
         }
     });
     trigger.add_controller(enter_trigger);
@@ -55,14 +60,12 @@ fn attach_auto_hide_logic(ui: &Rc<DockUI>, revealer: &Revealer, trigger: &Box, r
     let ui_leave = ui.clone();
     let rev_hide = revealer.clone();
     leave_root.connect_leave(move |_| {
-        trigger_hide_timeout(&ui_leave, &rev_hide, 500); // Reduced to 500ms for snappier feel
+        trigger_hide_timeout(&ui_leave, &rev_hide, 500);
     });
     root.add_controller(leave_root);
 }
 
-/// Starts a timer to hide the dock if no popovers are open.
 fn trigger_hide_timeout(ui: &Rc<DockUI>, revealer: &Revealer, ms: u32) {
-    // Cancel existing
     if let Some(id) = ui.hide_timeout.borrow_mut().take() { id.remove(); }
 
     let uil = ui.clone();
@@ -73,8 +76,9 @@ fn trigger_hide_timeout(ui: &Rc<DockUI>, revealer: &Revealer, ms: u32) {
         let context_visible = uil.context_menu.is_visible();
 
         if rh.reveals_child() && !launcher_visible && !context_visible {
-            // Check if mouse is actually still outside (safety check)
             rh.set_reveal_child(false);
+            
+            // Always reset zone to 0 when hiding
             uil.window.set_exclusive_zone(0);
         }
         *uil.hide_timeout.borrow_mut() = None;
@@ -83,15 +87,12 @@ fn trigger_hide_timeout(ui: &Rc<DockUI>, revealer: &Revealer, ms: u32) {
     *ui.hide_timeout.borrow_mut() = Some(id);
 }
 
-/// Watches for popovers closing and hides the dock if the mouse is already gone.
 fn setup_popover_hide_watchers(ui: &Rc<DockUI>, revealer: &Revealer) {
     let watch_popover = |popover: &Popover, ui: &Rc<DockUI>, rev: &Revealer| {
         let ui_c = ui.clone();
         let rev_c = rev.clone();
         popover.connect_closed(move |_| {
-            // When a menu closes, we might need to hide the dock immediately 
-            // if the mouse is already outside.
-            trigger_hide_timeout(&ui_c, &rev_c, 100); // Quick 100ms check
+            trigger_hide_timeout(&ui_c, &rev_c, 100);
         });
     };
 

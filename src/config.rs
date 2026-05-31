@@ -22,6 +22,9 @@ pub struct Config {
 
     #[serde(default = "default_background_color")]
     pub background_color: String,
+
+    #[serde(default = "default_overlay")]
+    pub overlay: bool,
 }
 
 fn default_auto_hide() -> bool { true }
@@ -36,6 +39,7 @@ fn default_icon_size() -> i32 { 32 }
 fn default_exclusive_zone() -> i32 { 60 }
 fn default_trigger_height() -> i32 { 10 }
 fn default_background_color() -> String { "rgba(20, 20, 30, 0.15)".to_string() }
+fn default_overlay() -> bool { true }
 
 impl Default for Config {
     fn default() -> Self {
@@ -46,6 +50,7 @@ impl Default for Config {
             exclusive_zone: default_exclusive_zone(),
             trigger_height: default_trigger_height(),
             background_color: default_background_color(),
+            overlay: default_overlay(),
         }
     }
 }

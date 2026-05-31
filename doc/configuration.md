@@ -11,7 +11,8 @@ HyprDock is configured via a TOML file located at `~/.config/hyprdock/config.tom
 | `icon_size` | Integer | `32` | The size of the icons in the dock (in pixels). |
 | `exclusive_zone` | Integer | `60` | The height of the reserved area on the screen edge (macOS-like spacing). |
 | `trigger_height` | Integer | `10` | The height of the invisible trigger zone at the bottom of the screen. |
-| `background_color` | String | `"rgba(20, 20, 30, 0.15)"` | The background color of the dock content. Supports any CSS color string (e.g., `transparent`, `#ff0000`, `rgba(...)`). |
+| `background_color` | String | `"rgba(20, 20, 30, 0.15)"` | The background color of the dock content. Supports any CSS color string. |
+| `overlay` | Boolean | `true` | If set to `true`, the dock will overlap open windows when it appears. If `false`, it will push windows upward. |
 
 ## Example `config.toml`
 
