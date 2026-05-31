@@ -1,5 +1,5 @@
 use gtk4::prelude::*;
-use gtk4::{Button, Popover, Box, SearchEntry, ScrolledWindow, Orientation, Image, Label};
+use gtk4::{Button, Popover, Box, SearchEntry, ScrolledWindow, Orientation, Image, Label, glib};
 use crate::ui::constants::*;
 use crate::ui::utils::create_base_button;
 use crate::launcher::{self, AppItem};
@@ -33,7 +33,6 @@ pub fn create_launcher() -> (Button, Popover) {
         .build();
     launcher_box.append(&scrolled);
 
-    // Use a Box instead of ListBox for ultimate click reliability and built-in Button animations
     let apps_container = Box::builder()
         .orientation(Orientation::Vertical)
         .spacing(2)
@@ -68,10 +67,10 @@ fn update_launcher_list(container: &Box, apps: &[AppItem], popover: &Popover) {
     while let Some(child) = container.first_child() { container.remove(&child); }
     
     for app in apps {
-        // Use a standard Button for every app item. 
-        // This gives us guaranteed click signals and native GTK click animations.
         let item_button = Button::builder()
             .has_frame(false)
+            .can_focus(true)
+            .receives_default(true)
             .build();
         item_button.add_css_class(CLASS_LAUNCHER_ITEM);
 
@@ -100,9 +99,14 @@ fn update_launcher_list(container: &Box, apps: &[AppItem], popover: &Popover) {
         let p_clone = popover.clone();
         
         item_button.connect_clicked(move |_| {
-            println!("HyprDock: Launching {} via button click", app_clone.name);
             launcher::launch_app_item(&app_clone);
-            p_clone.popdown();
+            
+            // Defer closing the popover slightly to allow the click animation to be visible
+            let pc = p_clone.clone();
+            glib::timeout_add_local(std::time::Duration::from_millis(150), move || {
+                pc.popdown();
+                glib::ControlFlow::Break
+            });
         });
         
         container.append(&item_button);

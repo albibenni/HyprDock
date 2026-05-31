@@ -6,12 +6,11 @@ pub struct AppItem {
     pub name: String,
     pub exec: String,
     pub icon: Option<gio::Icon>,
-    pub app_info: Option<gio::AppInfo>, // Store the original AppInfo for reliable launching
+    pub app_info: Option<gio::AppInfo>,
 }
 
 pub fn get_all_apps() -> Vec<AppItem> {
     let mut items = Vec::new();
-    
     let apps = gio::AppInfo::all();
     for app in apps {
         let should_show = std::panic::catch_unwind(|| app.should_show()).unwrap_or(false);
@@ -33,15 +32,18 @@ pub fn get_all_apps() -> Vec<AppItem> {
             app_info: Some(app),
         });
     }
-    
     items
 }
 
 pub fn launch_app_item(item: &AppItem) {
     if let Some(app_info) = &item.app_info {
-        let _ = app_info.launch(&[], gio::AppLaunchContext::NONE);
+        // Use a proper launch context if possible, otherwise None
+        let context = gio::AppLaunchContext::new();
+        match app_info.launch(&[], Some(&context)) {
+            Ok(_) => println!("HyprDock: Successfully launched {}", item.name),
+            Err(e) => eprintln!("HyprDock: ERROR launching {}: {}", item.name, e),
+        }
     } else {
-        // Fallback to name search if AppInfo is missing (shouldn't happen with current logic)
         launch_app(&item.name);
     }
 }
