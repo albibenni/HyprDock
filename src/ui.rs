@@ -218,7 +218,7 @@ fn create_launcher() -> (Button, Popover) {
     button.add_css_class(CLASS_LAUNCHER_BUTTON);
 
     let icon = Image::builder()
-        .icon_name("start-here-symbolic")
+        .icon_name("open-menu-symbolic")
         .pixel_size(LAUNCHER_ICON_SIZE)
         .build();
     button.set_child(Some(&icon));
