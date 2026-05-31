@@ -24,7 +24,6 @@ const FALLBACK_ICON_NAME: &str = "application-x-executable";
 // --- Constants: CSS Classes ---
 const CLASS_DOCK_WINDOW: &str = "dock-window";
 const CLASS_DOCK_CONTENT: &str = "dock-content";
-const CLASS_DOCK_TRANSPARENT: &str = "dock-transparent";
 const CLASS_DOCK_SEPARATOR: &str = "dock-separator";
 const CLASS_TRIGGER_BOX: &str = "trigger-box";
 const CLASS_TASKBAR_ITEM: &str = "taskbar-item";
@@ -91,9 +90,11 @@ pub fn build_ui(app: &Application, config: &Config) -> Rc<DockUI> {
 
     let (content, taskbar_box, pins_box, launcher_popover) = create_dock_content_layout(config);
 
-    if config.transparent {
-        content.add_css_class(CLASS_DOCK_TRANSPARENT);
-    }
+    // Dynamic background color from config
+    let color_provider = CssProvider::new();
+    let css = format!(".{} {{ background-color: {}; }}", CLASS_DOCK_CONTENT, config.background_color);
+    color_provider.load_from_data(&css);
+    content.style_context().add_provider(&color_provider, gtk4::STYLE_PROVIDER_PRIORITY_USER);
 
     if config.auto_hide {
         setup_auto_hide_behavior(&window, &content, &launcher_popover, config);

@@ -3,13 +3,14 @@
 }
 
 .dock-content {
-  background-color: rgba(20, 20, 30, 0.15);
+  background-color: rgba(20, 20, 30, 0.15); /* This is now the default, but can be overridden by config */
   border-radius: 12px;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
   border-left: 1px solid rgba(255, 255, 255, 0.05);
   border-right: 1px solid rgba(255, 255, 255, 0.05);
   padding: 6px 12px;
   box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+  transition: background-color 0.3s ease;
 }
 
 .dock-separator {
