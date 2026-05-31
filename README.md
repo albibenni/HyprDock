@@ -1,31 +1,46 @@
-# hyprdock
+# HyprDock
 
-A modern dock for Hyprland written in Rust.
+A modern, lightweight, and highly customizable dock for Hyprland (and other Wayland compositors), built with Rust and GTK4.
+
+![HyprDock Screenshot](./images/screenshot.png)
 
 ## Features
-- GTK4 UI
-- Layer Shell support (stays on top, reserves screen space)
-- Hyprland IPC integration (listens for workspace and window changes)
 
-## Getting Started
+- **macOS-inspired Aesthetics**: Clean pill-shaped design with semi-transparent backgrounds and smooth slide-up animations.
+- **Intelligent Auto-Hide**: Debounced, rock-solid auto-hide that stays open during tooltip displays and menu interaction.
+- **Overlay Mode**: Floats over windows without shifting your workspace layout (no screen reflow).
+- **Modular App Menu**: Faster, button-based application launcher with fuzzy search and visual click feedback.
+- **Favorites Management**: Right-click any icon to pin to favorites or remove them instantly. Changes are persisted automatically.
+- **Visual Status Indicators**: Three-tier dot system to distinguish between closed, open, and focused applications.
+- **Application Control**: Right-click open apps to close them (all instances) directly from the dock.
+- **Highly Configurable**: Comprehensive TOML configuration and support for custom CSS overrides.
 
-### Prerequisites
-Ensure you have the following installed:
-- Rust (stable)
-- GTK4 development libraries
-- GTK4 Layer Shell development libraries
+## Documentation
 
-On Arch Linux:
+- **[Configuration Guide](./doc/configuration.md)**: Full list of options and styling customization.
+- **[Architecture](./doc/architecture.md)**: Overview of the internal design and technologies.
+
+## Prerequisites
+
+- `rustc` and `cargo` (Edition 2024)
+- `libgtk-4-dev`
+- `libgtk4-layer-shell-dev`
+- `hyprland` compositor
+
+## Installation
+
 ```bash
-sudo pacman -S gtk4 gtk4-layer-shell
+git clone https://github.com/albibenni/HyprDock.git
+cd HyprDock
+make build
 ```
 
-### Installation
-1. Clone the repository
-2. Run with cargo:
+## Running
+
 ```bash
-cargo run
+make run
 ```
 
-## Architecture
-See [GEMINI.md](GEMINI.md) for detailed architecture and design goals.
+## License
+
+MIT
