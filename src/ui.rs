@@ -182,7 +182,9 @@ fn populate_pinned_apps(container: &Box, config: &Config) {
 }
 
 fn create_pinned_app_button(class: &str, icon_size: i32) -> Button {
-    let button = Button::builder().build();
+    let button = Button::builder()
+        .has_frame(false)
+        .build();
     button.add_css_class(CLASS_TASKBAR_ITEM);
     button.add_css_class(CLASS_PINNED_APP);
     button.set_tooltip_text(Some(class));
@@ -214,6 +216,7 @@ fn create_pinned_app_button(class: &str, icon_size: i32) -> Button {
 
 fn create_launcher() -> (Button, Popover) {
     let button = Button::builder()
+        .has_frame(false)
         .build();
     button.add_css_class(CLASS_LAUNCHER_BUTTON);
 
@@ -438,7 +441,9 @@ fn clear_container(container: &Box) {
 }
 
 fn create_taskbar_item(win: &WindowInfo, is_focused: bool, icon_size: i32) -> Button {
-    let button = Button::builder().build();
+    let button = Button::builder()
+        .has_frame(false)
+        .build();
     button.add_css_class(CLASS_TASKBAR_ITEM);
     button.add_css_class(CLASS_OPEN_APP);
     if is_focused {
