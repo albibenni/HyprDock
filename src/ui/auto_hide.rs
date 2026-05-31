@@ -12,10 +12,21 @@ pub fn setup_auto_hide(ui: &Rc<DockUI>, content: &Box) {
     let config = ui.config.borrow();
     
     window.set_exclusive_zone(0);
-    let revealer = Revealer::builder().transition_type(RevealerTransitionType::SlideUp).reveal_child(false).child(content).build();
-    let trigger_box = Box::builder().height_request(config.trigger_height).build();
+    let revealer = Revealer::builder()
+        .transition_type(RevealerTransitionType::SlideUp)
+        .transition_duration(300)
+        .reveal_child(false)
+        .child(content)
+        .valign(gtk4::Align::End) // Anchor expansion to bottom
+        .build();
+    let trigger_box = Box::builder()
+        .height_request(config.trigger_height)
+        .build();
     trigger_box.add_css_class(CLASS_TRIGGER_BOX);
-    let root_box = Box::builder().orientation(Orientation::Vertical).build();
+    let root_box = Box::builder()
+        .orientation(Orientation::Vertical)
+        .valign(gtk4::Align::End) // Ensure the entire container stays at the bottom
+        .build();
     root_box.append(&revealer);
     root_box.append(&trigger_box);
     window.set_child(Some(&root_box));
