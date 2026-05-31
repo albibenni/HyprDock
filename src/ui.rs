@@ -8,7 +8,7 @@ use gtk4::prelude::*;
 use gtk4::{
     Application, ApplicationWindow, Box, Button, CssProvider, EventControllerMotion, GestureClick,
     IconTheme, Image, Label, ListBox, ListBoxRow, Orientation, Popover, Revealer,
-    RevealerTransitionType, ScrolledWindow, SearchEntry, Separator,
+    RevealerTransitionType, ScrolledWindow, SearchEntry, Separator, Widget,
 };
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use std::fs;
@@ -16,14 +16,12 @@ use std::rc::Rc;
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-// --- Constants: Layout ---
+// --- Constants ---
 const DOCK_NAMESPACE: &str = "hyprdock";
-
-// --- Constants: Icons ---
 const LAUNCHER_ICON_SIZE: i32 = 38;
 const FALLBACK_ICON_NAME: &str = "application-x-executable";
 
-// --- Constants: CSS Classes ---
+// --- CSS Classes ---
 const CLASS_DOCK_WINDOW: &str = "dock-window";
 const CLASS_DOCK_CONTENT: &str = "dock-content";
 const CLASS_DOCK_SEPARATOR: &str = "dock-separator";
@@ -43,7 +41,7 @@ const CLASS_SECTION_MENU: &str = "section-menu";
 const CLASS_SECTION_FAVORITES: &str = "section-favorites";
 const CLASS_SECTION_TASKS: &str = "section-tasks";
 
-// --- UI Components ---
+// --- UI Models ---
 
 /// Handle to the UI widgets for state updates.
 pub struct DockUI {
@@ -58,19 +56,12 @@ pub struct DockUI {
     pub config: RefCell<Config>,
 }
 
-/// Initializes styling by loading internal and optional external CSS.
+// --- Initialization & Setup ---
+
 pub fn initialize_styling() {
     let provider = CssProvider::new();
-    load_internal_css(&provider);
-    load_external_css(&provider);
-    apply_css_to_display(&provider);
-}
-
-fn load_internal_css(provider: &CssProvider) {
     provider.load_from_data(include_str!("style.css"));
-}
-
-fn load_external_css(provider: &CssProvider) {
+    
     if let Some(proj_dirs) = crate::config::get_project_dirs() {
         let css_path = proj_dirs.config_dir().join("style.css");
         if css_path.exists() {
@@ -79,43 +70,37 @@ fn load_external_css(provider: &CssProvider) {
             }
         }
     }
-}
 
-fn apply_css_to_display(provider: &CssProvider) {
     if let Some(display) = Display::default() {
         gtk4::style_context_add_provider_for_display(
             &display,
-            provider,
+            &provider,
             gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
         );
     }
 }
 
-/// Main entry point for building the Dock UI.
 pub fn build_ui(app: &Application, config: &Config) -> Rc<DockUI> {
-    let window = create_window(app);
+    let window = ApplicationWindow::builder()
+        .application(app)
+        .title("hyprdock")
+        .build();
+    
     setup_layer_shell(&window);
     window.add_css_class(CLASS_DOCK_WINDOW);
 
-    let (content, taskbar_box, pins_box, pins_map, launcher_popover) = create_dock_content_layout(config);
+    let (content, taskbar_box, pins_box, pins_map, launcher_popover) = create_layout(config);
 
-    // Dynamic background color from config
-    let color_provider = CssProvider::new();
-    let css = format!(".{} {{ background-color: {}; }}", CLASS_DOCK_CONTENT, config.background_color);
-    color_provider.load_from_data(&css);
-    content.style_context().add_provider(&color_provider, gtk4::STYLE_PROVIDER_PRIORITY_USER);
+    apply_background_color(&content, &config.background_color);
 
-    // Reusable context menu popover
-    let context_menu = Popover::builder()
-        .has_arrow(true)
-        .autohide(true)
-        .build();
+    let context_menu = Popover::builder().has_arrow(true).autohide(true).build();
     context_menu.add_css_class(CLASS_CONTEXT_MENU);
 
     if config.auto_hide {
-        setup_auto_hide_behavior(&window, &content, &launcher_popover, &context_menu, config);
+        setup_auto_hide(&window, &content, &launcher_popover, &context_menu, config);
     } else {
-        setup_static_behavior(&window, &content, config);
+        window.set_exclusive_zone(config.exclusive_zone);
+        window.set_child(Some(&content));
     }
 
     window.present();
@@ -132,23 +117,11 @@ pub fn build_ui(app: &Application, config: &Config) -> Rc<DockUI> {
         config: RefCell::new(config.clone()),
     });
 
-    setup_context_menu_handlers(&ui);
+    for (class, button) in ui.pins_map.borrow().iter() {
+        attach_context_menu(&ui, button, class, true);
+    }
 
     ui
-}
-
-fn setup_context_menu_handlers(ui: &Rc<DockUI>) {
-    let pins = ui.pins_map.borrow().clone();
-    for (class, button) in pins {
-        attach_context_menu(ui, &button, &class, true);
-    }
-}
-
-fn create_window(app: &Application) -> ApplicationWindow {
-    ApplicationWindow::builder()
-        .application(app)
-        .title("hyprdock")
-        .build()
 }
 
 fn setup_layer_shell(window: &ApplicationWindow) {
@@ -161,128 +134,71 @@ fn setup_layer_shell(window: &ApplicationWindow) {
     window.set_keyboard_mode(KeyboardMode::OnDemand);
 }
 
-fn create_dock_content_layout(config: &Config) -> (Box, Box, Box, HashMap<String, Button>, Popover) {
+fn apply_background_color(widget: &impl IsA<Widget>, color: &str) {
+    let provider = CssProvider::new();
+    let css = format!(".{} {{ background-color: {}; }}", CLASS_DOCK_CONTENT, color);
+    provider.load_from_data(&css);
+    widget.style_context().add_provider(&provider, gtk4::STYLE_PROVIDER_PRIORITY_USER);
+}
+
+// --- Layout Creation ---
+
+fn create_layout(config: &Config) -> (Box, Box, Box, HashMap<String, Button>, Popover) {
     let content = Box::builder()
         .orientation(Orientation::Horizontal)
         .spacing(4)
         .halign(gtk4::Align::Center)
-        .margin_top(4) // Spacing from screen edge
+        .margin_top(4)
         .margin_bottom(4)
         .build();
     content.add_css_class(CLASS_DOCK_CONTENT);
 
-    // 1. Menu Section
-    let menu_section = Box::builder()
-        .orientation(Orientation::Horizontal)
-        .spacing(0)
-        .build();
-    menu_section.add_css_class(CLASS_SECTION_MENU);
-    
+    // 1. Menu
     let (launcher_button, launcher_popover) = create_launcher();
-    menu_section.append(&launcher_button);
+    let menu_section = create_section(CLASS_SECTION_MENU, 0, &[&launcher_button]);
     content.append(&menu_section);
+    content.append(&create_separator());
 
-    // Separator
-    let launcher_sep = Separator::new(Orientation::Vertical);
-    launcher_sep.add_css_class(CLASS_DOCK_SEPARATOR);
-    content.append(&launcher_sep);
-
-    // 2. Favorites Section
-    let favorites_section = Box::builder()
-        .orientation(Orientation::Horizontal)
-        .spacing(8)
-        .build();
-    favorites_section.add_css_class(CLASS_SECTION_FAVORITES);
-
-    let pins_box = Box::builder()
-        .orientation(Orientation::Horizontal)
-        .spacing(8)
-        .build();
+    // 2. Favorites
+    let pins_box = Box::builder().orientation(Orientation::Horizontal).spacing(8).build();
     let pins_map = populate_pinned_apps(&pins_box, config);
-    favorites_section.append(&pins_box);
+    let favorites_section = create_section(CLASS_SECTION_FAVORITES, 8, &[&pins_box]);
     content.append(&favorites_section);
+    content.append(&create_separator());
 
-    // Vertical Separator (macOS style)
-    let separator = Separator::new(Orientation::Vertical);
-    separator.add_css_class(CLASS_DOCK_SEPARATOR);
-    content.append(&separator);
-
-    // 3. Tasks Section
-    let tasks_section = Box::builder()
-        .orientation(Orientation::Horizontal)
-        .spacing(8)
-        .build();
-    tasks_section.add_css_class(CLASS_SECTION_TASKS);
-
-    let taskbar_box = Box::builder()
-        .orientation(Orientation::Horizontal)
-        .spacing(8)
-        .build();
-    tasks_section.append(&taskbar_box);
+    // 3. Tasks
+    let taskbar_box = Box::builder().orientation(Orientation::Horizontal).spacing(8).build();
+    let tasks_section = create_section(CLASS_SECTION_TASKS, 8, &[&taskbar_box]);
     content.append(&tasks_section);
 
     (content, taskbar_box, pins_box, pins_map, launcher_popover)
 }
 
-fn populate_pinned_apps(container: &Box, config: &Config) -> HashMap<String, Button> {
-    let mut map = HashMap::new();
-    for class in &config.pinned_apps {
-        let pin = create_pinned_app_button(class, config.icon_size);
-        container.append(&pin);
-        map.insert(class.to_lowercase(), pin);
+fn create_section(class: &str, spacing: i32, children: &[&impl IsA<Widget>]) -> Box {
+    let section = Box::builder()
+        .orientation(Orientation::Horizontal)
+        .spacing(spacing)
+        .build();
+    section.add_css_class(class);
+    for child in children {
+        section.append(*child);
     }
-    map
+    section
 }
 
-fn create_pinned_app_button(class: &str, icon_size: i32) -> Button {
-    let button = Button::builder()
-        .has_frame(false)
-        .build();
-    button.add_css_class(CLASS_TASKBAR_ITEM);
-    button.add_css_class(CLASS_PINNED_APP);
-    button.set_tooltip_text(Some(class));
-
-    let icon = Image::builder()
-        .pixel_size(icon_size)
-        .build();
-    icon.add_css_class(CLASS_TASKBAR_ICON);
-
-    if let Some(gicon) = resolve_gicon(class) {
-        icon.set_from_gicon(&gicon);
-    } else {
-        icon.set_icon_name(Some(FALLBACK_ICON_NAME));
-    }
-
-    button.set_child(Some(&icon));
-
-    let class_clone = class.to_string();
-    button.connect_clicked(move |_| {
-        if let Some(addr) = crate::hypr::get_first_window_by_class(&class_clone) {
-            crate::hypr::focus_window(&addr);
-        } else {
-            crate::launcher::launch_app_by_class(&class_clone);
-        }
-    });
-
-    button
+fn create_separator() -> Separator {
+    let sep = Separator::new(Orientation::Vertical);
+    sep.add_css_class(CLASS_DOCK_SEPARATOR);
+    sep
 }
+
+// --- Component Builders ---
 
 fn create_launcher() -> (Button, Popover) {
-    let button = Button::builder()
-        .has_frame(false)
-        .build();
+    let button = create_base_button(Some(LAUNCHER_ICON_SIZE), Some("open-menu-symbolic"));
     button.add_css_class(CLASS_LAUNCHER_BUTTON);
 
-    let icon = Image::builder()
-        .icon_name("open-menu-symbolic")
-        .pixel_size(LAUNCHER_ICON_SIZE)
-        .build();
-    button.set_child(Some(&icon));
-
-    let popover = Popover::builder()
-        .position(gtk4::PositionType::Top)
-        .autohide(true)
-        .build();
+    let popover = Popover::builder().position(gtk4::PositionType::Top).autohide(true).build();
     popover.add_css_class(CLASS_LAUNCHER_POPOVER);
     popover.set_parent(&button);
 
@@ -297,63 +213,44 @@ fn create_launcher() -> (Button, Popover) {
         .margin_end(10)
         .build();
 
-    let search_entry = SearchEntry::builder()
-        .placeholder_text("Search applications...")
-        .build();
+    let search_entry = SearchEntry::builder().placeholder_text("Search applications...").build();
     launcher_box.append(&search_entry);
 
-    let scrolled = ScrolledWindow::builder()
-        .hscrollbar_policy(gtk4::PolicyType::Never)
-        .vscrollbar_policy(gtk4::PolicyType::Automatic)
-        .propagate_natural_height(true)
-        .build();
+    let scrolled = ScrolledWindow::builder().propagate_natural_height(true).build();
     launcher_box.append(&scrolled);
 
-    let list_box = ListBox::builder()
-        .selection_mode(gtk4::SelectionMode::None)
-        .build();
+    let list_box = ListBox::builder().selection_mode(gtk4::SelectionMode::None).build();
     list_box.add_css_class(CLASS_LAUNCHER_LIST);
     scrolled.set_child(Some(&list_box));
 
-    // Search logic
-    let list_box_clone = list_box.clone();
-    let popover_clone = popover.clone();
+    let lb_clone = list_box.clone();
+    let p_clone = popover.clone();
     search_entry.connect_search_changed(move |entry| {
         let query = entry.text().to_lowercase();
-        let filtered_apps: Vec<AppItem> = launcher::get_all_apps()
-            .into_iter()
-            .filter(|app| app.name.to_lowercase().contains(&query))
-            .collect();
-        populate_launcher_list(&list_box_clone, &filtered_apps, &popover_clone);
+        let apps: Vec<AppItem> = launcher::get_all_apps().into_iter()
+            .filter(|a| a.name.to_lowercase().contains(&query)).collect();
+        update_launcher_list(&lb_clone, &apps, &p_clone);
     });
 
-    // Populate LAZILY when opened
-    let list_box_init = list_box.clone();
-    let popover_init = popover.clone();
+    let lb_init = list_box.clone();
+    let p_init = popover.clone();
     popover.connect_show(move |_| {
-        let apps = launcher::get_all_apps();
-        populate_launcher_list(&list_box_init, &apps, &popover_init);
+        update_launcher_list(&lb_init, &launcher::get_all_apps(), &p_init);
     });
 
     popover.set_child(Some(&launcher_box));
     
-    let popover_click = popover.clone();
-    button.connect_clicked(move |_| {
-        popover_click.popup();
-    });
+    let p_click = popover.clone();
+    button.connect_clicked(move |_| p_click.popup());
 
     (button, popover)
 }
 
-fn populate_launcher_list(list_box: &ListBox, apps: &[AppItem], popover: &Popover) {
-    while let Some(child) = list_box.first_child() {
-        list_box.remove(&child);
-    }
-
+fn update_launcher_list(list_box: &ListBox, apps: &[AppItem], popover: &Popover) {
+    while let Some(child) = list_box.first_child() { list_box.remove(&child); }
     for app in apps {
         let row = ListBoxRow::new();
         row.add_css_class(CLASS_LAUNCHER_ITEM);
-
         let item_box = Box::builder()
             .orientation(Orientation::Horizontal)
             .spacing(12)
@@ -362,15 +259,10 @@ fn populate_launcher_list(list_box: &ListBox, apps: &[AppItem], popover: &Popove
             .margin_start(6)
             .margin_end(6)
             .build();
-
-        let icon = Image::builder()
-            .pixel_size(LAUNCHER_ICON_SIZE)
-            .build();
-        if let Some(gicon) = &app.icon {
-            icon.set_from_gicon(gicon);
-        } else {
-            icon.set_icon_name(Some(FALLBACK_ICON_NAME));
-        }
+        
+        let icon = Image::builder().pixel_size(LAUNCHER_ICON_SIZE).build();
+        if let Some(gicon) = &app.icon { icon.set_from_gicon(gicon); }
+        else { icon.set_icon_name(Some(FALLBACK_ICON_NAME)); }
 
         let label = Label::new(Some(&app.name));
         label.set_halign(gtk4::Align::Start);
@@ -380,137 +272,124 @@ fn populate_launcher_list(list_box: &ListBox, apps: &[AppItem], popover: &Popove
         row.set_child(Some(&item_box));
 
         let app_name = app.name.clone();
-        let popover_clone = popover.clone();
+        let p_clone = popover.clone();
         row.connect_activate(move |_| {
             launcher::launch_app(&app_name);
-            popover_clone.popdown();
+            p_clone.popdown();
         });
-
         list_box.append(&row);
     }
 }
 
-fn setup_static_behavior(window: &ApplicationWindow, content: &Box, config: &Config) {
-    window.set_exclusive_zone(config.exclusive_zone);
-    window.set_child(Some(content));
+fn create_base_button(icon_size: Option<i32>, icon_name: Option<&str>) -> Button {
+    let button = Button::builder().has_frame(false).build();
+    if let Some(size) = icon_size {
+        let icon = Image::builder().pixel_size(size).build();
+        if let Some(name) = icon_name { icon.set_icon_name(Some(name)); }
+        button.set_child(Some(&icon));
+    }
+    button
 }
 
-fn setup_auto_hide_behavior(
-    window: &ApplicationWindow,
-    content: &Box,
-    launcher_popover: &Popover,
-    context_popover: &Popover,
-    config: &Config,
-) {
+fn populate_pinned_apps(container: &Box, config: &Config) -> HashMap<String, Button> {
+    let mut map = HashMap::new();
+    for class in &config.pinned_apps {
+        let pin = create_pinned_button(class, config.icon_size);
+        container.append(&pin);
+        map.insert(class.to_lowercase(), pin);
+    }
+    map
+}
+
+fn create_pinned_button(class: &str, icon_size: i32) -> Button {
+    let button = create_base_button(Some(icon_size), None);
+    button.add_css_class(CLASS_TASKBAR_ITEM);
+    button.add_css_class(CLASS_PINNED_APP);
+    button.set_tooltip_text(Some(class));
+
+    if let Some(icon_child) = button.child().and_downcast::<Image>() {
+        if let Some(gicon) = resolve_gicon(class) { icon_child.set_from_gicon(&gicon); }
+        else { icon_child.set_icon_name(Some(FALLBACK_ICON_NAME)); }
+    }
+
+    let class_clone = class.to_string();
+    button.connect_clicked(move |_| {
+        if let Some(addr) = crate::hypr::get_first_window_by_class(&class_clone) {
+            crate::hypr::focus_window(&addr);
+        } else {
+            launcher::launch_app_by_class(&class_clone);
+        }
+    });
+    button
+}
+
+// --- Interaction Logic ---
+
+fn setup_auto_hide(window: &ApplicationWindow, content: &Box, l_pop: &Popover, c_pop: &Popover, config: &Config) {
     window.set_exclusive_zone(0);
-
-    let revealer = Revealer::builder()
-        .transition_type(RevealerTransitionType::SlideUp)
-        .reveal_child(false)
-        .child(content)
-        .build();
-
-    let trigger_box = Box::builder()
-        .height_request(config.trigger_height)
-        .build();
+    let revealer = Revealer::builder().transition_type(RevealerTransitionType::SlideUp).reveal_child(false).child(content).build();
+    let trigger_box = Box::builder().height_request(config.trigger_height).build();
     trigger_box.add_css_class(CLASS_TRIGGER_BOX);
-
-    let root_box = Box::builder()
-        .orientation(Orientation::Vertical)
-        .build();
-
+    let root_box = Box::builder().orientation(Orientation::Vertical).build();
     root_box.append(&revealer);
     root_box.append(&trigger_box);
     window.set_child(Some(&root_box));
 
-    attach_auto_hide_controllers(
-        window,
-        &revealer,
-        &trigger_box,
-        &root_box,
-        launcher_popover,
-        context_popover,
-        config.exclusive_zone,
-    );
+    attach_auto_hide_logic(window, &revealer, &trigger_box, &root_box, l_pop, c_pop, config.exclusive_zone);
 }
 
-fn attach_auto_hide_controllers(
-    window: &ApplicationWindow,
-    revealer: &Revealer,
-    trigger: &Box,
-    root: &Box,
-    launcher_popover: &Popover,
-    context_popover: &Popover,
-    exclusive_zone: i32,
-) {
+fn attach_auto_hide_logic(window: &ApplicationWindow, revealer: &Revealer, trigger: &Box, root: &Box, l_pop: &Popover, c_pop: &Popover, zone: i32) {
     let hide_timeout = Rc::new(RefCell::new(None::<glib::SourceId>));
+    let cancel_hide = move |timeout: &Rc<RefCell<Option<glib::SourceId>>>| {
+        if let Some(id) = timeout.borrow_mut().take() { id.remove(); }
+    };
 
-    // --- Helper to create a cancel-only controller ---
-    let create_cancel_controller = |h_timeout: Rc<RefCell<Option<glib::SourceId>>>| {
+    let create_motion_ctrl = |timeout: Rc<RefCell<Option<glib::SourceId>>>| {
         let ctrl = EventControllerMotion::new();
-        let h_timeout_enter = h_timeout.clone();
-        ctrl.connect_enter(move |_, _, _| {
-            if let Some(source_id) = h_timeout_enter.borrow_mut().take() {
-                source_id.remove();
-            }
-        });
-        let h_timeout_motion = h_timeout.clone();
-        ctrl.connect_motion(move |_, _, _| {
-            if let Some(source_id) = h_timeout_motion.borrow_mut().take() {
-                source_id.remove();
-            }
-        });
+        let t_enter = timeout.clone();
+        ctrl.connect_enter(move |_, _, _| cancel_hide(&t_enter));
+        let t_motion = timeout.clone();
+        ctrl.connect_motion(move |_, _, _| cancel_hide(&t_motion));
         ctrl
     };
 
-    // --- Enter/Motion logic for Reveal/Persistence ---
     let enter_trigger = EventControllerMotion::new();
-    let win_reveal = window.clone();
-    let rev_reveal = revealer.clone();
-    let h_timeout_trigger = hide_timeout.clone();
-
+    let win_rev = window.clone();
+    let rev_rev = revealer.clone();
+    let t_trigger = hide_timeout.clone();
     enter_trigger.connect_enter(move |_, _, _| {
-        if let Some(source_id) = h_timeout_trigger.borrow_mut().take() {
-            source_id.remove();
-        }
-        if !rev_reveal.reveals_child() {
-            rev_reveal.set_reveal_child(true);
-            win_reveal.set_exclusive_zone(exclusive_zone);
+        cancel_hide(&t_trigger);
+        if !rev_rev.reveals_child() {
+            rev_rev.set_reveal_child(true);
+            win_rev.set_exclusive_zone(zone);
         }
     });
     trigger.add_controller(enter_trigger);
+    root.add_controller(create_motion_ctrl(hide_timeout.clone()));
 
-    // Add cancel-only controllers to other areas to ensure stability
-    root.add_controller(create_cancel_controller(hide_timeout.clone()));
-
-    // --- Leave Controller (Root) ---
-    let leave_controller = EventControllerMotion::new();
-    let win_hide = window.clone();
-    let rev_hide = revealer.clone();
-    let l_pop = launcher_popover.clone();
-    let c_pop = context_popover.clone();
-    let h_timeout_leave = hide_timeout.clone();
-
-    leave_controller.connect_leave(move |_| {
-        let win_c = win_hide.clone();
-        let rev_c = rev_hide.clone();
-        let l_pop_c = l_pop.clone();
-        let c_pop_c = c_pop.clone();
-        let h_timeout_c = h_timeout_leave.clone();
-
-        // Increase to 1500ms for ultimate stability against tooltips
-        let source_id = glib::timeout_add_local(std::time::Duration::from_millis(1500), move || {
-            if rev_c.reveals_child() && !l_pop_c.is_visible() && !c_pop_c.is_visible() {
-                rev_c.set_reveal_child(false);
-                win_c.set_exclusive_zone(0);
+    let leave_root = EventControllerMotion::new();
+    let win_h = window.clone();
+    let rev_h = revealer.clone();
+    let lp = l_pop.clone();
+    let cp = c_pop.clone();
+    let t_root = hide_timeout.clone();
+    leave_root.connect_leave(move |_| {
+        let wh = win_h.clone();
+        let rh = rev_h.clone();
+        let lpc = lp.clone();
+        let cpc = cp.clone();
+        let th = t_root.clone();
+        let id = glib::timeout_add_local(std::time::Duration::from_millis(1500), move || {
+            if rh.reveals_child() && !lpc.is_visible() && !cpc.is_visible() {
+                rh.set_reveal_child(false);
+                wh.set_exclusive_zone(0);
             }
-            *h_timeout_c.borrow_mut() = None;
+            *th.borrow_mut() = None;
             glib::ControlFlow::Break
         });
-
-        *h_timeout_leave.borrow_mut() = Some(source_id);
+        *t_root.borrow_mut() = Some(id);
     });
-    root.add_controller(leave_controller);
+    root.add_controller(leave_root);
 }
 
 // --- Event Handling ---
@@ -520,145 +399,95 @@ pub fn handle_event(event: HyprEvent, ui: &Rc<DockUI>) {
         HyprEvent::WorkspaceChanged(_) => {}
         HyprEvent::ActiveWindowChanged(addr) => {
             *ui.active_address.borrow_mut() = addr;
-            let windows = ui.last_windows.borrow().clone();
-            update_taskbar(ui, windows);
+            update_taskbar(ui, ui.last_windows.borrow().clone());
         }
         HyprEvent::WindowListUpdate(windows) => {
             *ui.last_windows.borrow_mut() = windows.clone();
             update_taskbar(ui, windows);
         }
-        HyprEvent::Error(err) => {
-            eprintln!("Hyprland Error: {}", err);
-        }
+        HyprEvent::Error(err) => eprintln!("Hyprland Error: {}", err),
     }
 }
 
 fn update_taskbar(ui: &Rc<DockUI>, windows: Vec<WindowInfo>) {
     clear_container(&ui.taskbar_box);
     let active_addr = ui.active_address.borrow();
-
-    for button in ui.pins_map.borrow().values() {
-        button.remove_css_class(CLASS_OPEN_APP);
-        button.remove_css_class(CLASS_FOCUSED_APP);
+    for btn in ui.pins_map.borrow().values() {
+        btn.remove_css_class(CLASS_OPEN_APP);
+        btn.remove_css_class(CLASS_FOCUSED_APP);
     }
-
     for win in windows {
         let is_focused = active_addr.as_ref() == Some(&win.address);
         let class_lower = win.class.to_lowercase();
-
         if let Some(pinned_btn) = ui.pins_map.borrow().get(&class_lower) {
             pinned_btn.add_css_class(CLASS_OPEN_APP);
-            if is_focused {
-                pinned_btn.add_css_class(CLASS_FOCUSED_APP);
-            }
+            if is_focused { pinned_btn.add_css_class(CLASS_FOCUSED_APP); }
         } else {
-            let item = create_taskbar_item(ui, &win, is_focused);
-            ui.taskbar_box.append(&item);
+            ui.taskbar_box.append(&create_taskbar_item(ui, &win, is_focused));
         }
     }
 }
 
 fn clear_container(container: &Box) {
-    while let Some(child) = container.first_child() {
-        container.remove(&child);
-    }
+    while let Some(child) = container.first_child() { container.remove(&child); }
 }
 
 fn create_taskbar_item(ui: &Rc<DockUI>, win: &WindowInfo, is_focused: bool) -> Button {
-    let config = ui.config.borrow();
-    let button = Button::builder()
-        .has_frame(false)
-        .build();
+    let button = create_base_button(Some(ui.config.borrow().icon_size), None);
     button.add_css_class(CLASS_TASKBAR_ITEM);
     button.add_css_class(CLASS_OPEN_APP);
-    if is_focused {
-        button.add_css_class(CLASS_FOCUSED_APP);
-    }
+    if is_focused { button.add_css_class(CLASS_FOCUSED_APP); }
     button.set_tooltip_text(Some(&win.title));
 
-    let icon = Image::builder()
-        .pixel_size(config.icon_size)
-        .build();
-    icon.add_css_class(CLASS_TASKBAR_ICON);
-
-    if let Some(gicon) = resolve_gicon(&win.class) {
-        icon.set_from_gicon(&gicon);
-    } else {
-        icon.set_icon_name(Some(FALLBACK_ICON_NAME));
+    if let Some(icon) = button.child().and_downcast::<Image>() {
+        if let Some(gicon) = resolve_gicon(&win.class) { icon.set_from_gicon(&gicon); }
+        else { icon.set_icon_name(Some(FALLBACK_ICON_NAME)); }
     }
 
-    button.set_child(Some(&icon));
-
     let addr = win.address.clone();
-    button.connect_clicked(move |_| {
-        crate::hypr::focus_window(&addr);
-    });
-
+    button.connect_clicked(move |_| crate::hypr::focus_window(&addr));
     attach_context_menu(ui, &button, &win.class, false);
-
     button
 }
 
-fn attach_context_menu(ui: &Rc<DockUI>, button: &Button, class: &str, is_pinned: bool) {
-    let gesture = GestureClick::builder()
-        .button(3) // Right click
-        .build();
+// --- Context Menu ---
 
+fn attach_context_menu(ui: &Rc<DockUI>, button: &Button, class: &str, is_pinned: bool) {
+    let gesture = GestureClick::builder().button(3).build();
     let ui_clone = ui.clone();
     let btn_clone = button.clone();
     let class_clone = class.to_string();
-    gesture.connect_pressed(move |_, _, _, _| {
-        show_context_menu(&ui_clone, &btn_clone, &class_clone, is_pinned);
-    });
-
+    gesture.connect_pressed(move |_, _, _, _| show_context_menu(&ui_clone, &btn_clone, &class_clone, is_pinned));
     button.add_controller(gesture);
 }
 
 fn show_context_menu(ui: &Rc<DockUI>, button: &Button, class: &str, is_pinned: bool) {
     let popover = &ui.context_menu;
+    if popover.parent().is_some() { popover.unparent(); }
+
+    let menu_box = Box::builder().orientation(Orientation::Vertical).build();
     
-    if let Some(_) = popover.parent() {
-        popover.unparent();
-    }
-
-    let menu_box = Box::builder()
-        .orientation(Orientation::Vertical)
-        .build();
-
-    // 1. Favorite Action
-    let fav_btn = Button::builder()
-        .label(if is_pinned { "Remove from Favorites" } else { "Add to Favorites" })
-        .has_frame(false)
-        .build();
-    fav_btn.add_css_class(CLASS_CONTEXT_MENU_ITEM);
-
     let ui_fav = ui.clone();
     let class_fav = class.to_string();
-    let popover_fav = popover.clone();
+    let p_fav = popover.clone();
+    let fav_btn = Button::builder().has_frame(false).label(if is_pinned { "Remove from Favorites" } else { "Add to Favorites" }).build();
+    fav_btn.add_css_class(CLASS_CONTEXT_MENU_ITEM);
     fav_btn.connect_clicked(move |_| {
-        if is_pinned {
-            unpin_app(&ui_fav, &class_fav);
-        } else {
-            pin_app(&ui_fav, &class_fav);
-        }
-        popover_fav.popdown();
+        if is_pinned { unpin_app(&ui_fav, &class_fav); }
+        else { pin_app(&ui_fav, &class_fav); }
+        p_fav.popdown();
     });
     menu_box.append(&fav_btn);
 
-    // 2. Close App Action (Only if open)
-    let open_windows = crate::hypr::get_all_windows_by_class(class);
-    if !open_windows.is_empty() {
-        let close_btn = Button::builder()
-            .label("Close Application")
-            .has_frame(false)
-            .build();
-        close_btn.add_css_class(CLASS_CONTEXT_MENU_ITEM);
-
+    if !crate::hypr::get_all_windows_by_class(class).is_empty() {
+        let ui_close = ui.clone();
         let class_close = class.to_string();
-        let popover_close = popover.clone();
+        let p_close = popover.clone();
+        let close_btn = Button::builder().has_frame(false).label("Close Application").build();
+        close_btn.add_css_class(CLASS_CONTEXT_MENU_ITEM);
         close_btn.connect_clicked(move |_| {
             crate::hypr::close_all_windows_by_class(&class_close);
-            popover_close.popdown();
+            p_close.popdown();
         });
         menu_box.append(&close_btn);
     }
@@ -670,94 +499,65 @@ fn show_context_menu(ui: &Rc<DockUI>, button: &Button, class: &str, is_pinned: b
 
 fn pin_app(ui: &Rc<DockUI>, class: &str) {
     let mut config = ui.config.borrow_mut();
-    let class_lower = class.to_lowercase();
-    
-    if !config.pinned_apps.iter().any(|p| p.to_lowercase() == class_lower) {
-        eprintln!("HyprDock: Pinning app: {}", class);
+    if !config.pinned_apps.iter().any(|p| p.to_lowercase() == class.to_lowercase()) {
         config.pinned_apps.push(class.to_string());
         crate::config::save_config(&config);
-        
         drop(config);
-        
-        let ui_clone = ui.clone();
-        glib::idle_add_local(move || {
-            refresh_dock(&ui_clone);
-            glib::ControlFlow::Break
-        });
-    } else {
-        eprintln!("HyprDock: App {} is already pinned", class);
+        let uic = ui.clone();
+        glib::idle_add_local(move || { refresh_dock(&uic); glib::ControlFlow::Break });
     }
 }
 
 fn unpin_app(ui: &Rc<DockUI>, class: &str) {
     let mut config = ui.config.borrow_mut();
-    let class_lower = class.to_lowercase();
     let original_len = config.pinned_apps.len();
-    
-    config.pinned_apps.retain(|p| p.to_lowercase() != class_lower);
-    
+    config.pinned_apps.retain(|p| p.to_lowercase() != class.to_lowercase());
     if config.pinned_apps.len() < original_len {
-        eprintln!("HyprDock: Unpinning app: {}", class);
         crate::config::save_config(&config);
-        
         drop(config);
-        
-        let ui_clone = ui.clone();
-        glib::idle_add_local(move || {
-            refresh_dock(&ui_clone);
-            glib::ControlFlow::Break
-        });
-    } else {
-        eprintln!("HyprDock: App {} was not found in pinned list", class);
+        let uic = ui.clone();
+        glib::idle_add_local(move || { refresh_dock(&uic); glib::ControlFlow::Break });
     }
 }
 
 fn refresh_dock(ui: &Rc<DockUI>) {
-    eprintln!("HyprDock: Refreshing dock layout...");
     let config = ui.config.borrow().clone();
     clear_container(&ui.pins_box);
     let mut pins_map = ui.pins_map.borrow_mut();
     pins_map.clear();
-
     for class in &config.pinned_apps {
-        let pin = create_pinned_app_button(class, config.icon_size);
+        let pin = create_pinned_button(class, config.icon_size);
         ui.pins_box.append(&pin);
         pins_map.insert(class.to_lowercase(), pin.clone());
         attach_context_menu(ui, &pin, class, true);
     }
-
     let windows = ui.last_windows.borrow().clone();
     drop(pins_map);
     update_taskbar(ui, windows);
 }
 
+// --- Icon Resolution ---
+
 fn resolve_gicon(class: &str) -> Option<gio::Icon> {
     if class.is_empty() { return None; }
     let class_lower = class.to_lowercase();
     if let Some(display) = Display::default() {
-        let icon_theme = IconTheme::for_display(&display);
-        if icon_theme.has_icon(&class_lower) {
-            return Some(gio::ThemedIcon::new(&class_lower).upcast());
-        }
+        let theme = IconTheme::for_display(&display);
+        if theme.has_icon(&class_lower) { return Some(gio::ThemedIcon::new(&class_lower).upcast()); }
     }
     let apps = gio::AppInfo::all();
     for app in &apps {
-        let id = std::panic::catch_unwind(|| app.id()).unwrap_or(None)
-            .map(|i| i.to_string().to_lowercase()).unwrap_or_default();
+        let id = std::panic::catch_unwind(|| app.id()).unwrap_or(None).map(|i| i.to_string().to_lowercase()).unwrap_or_default();
         let name = std::panic::catch_unwind(|| app.name().to_lowercase()).unwrap_or_default();
         if (!name.is_empty() && class_lower.contains(&name)) || (!id.is_empty() && class_lower.contains(&id)) {
-            if let Ok(icon) = std::panic::catch_unwind(|| app.icon()) {
-                if let Some(icon) = icon { return Some(icon); }
-            }
+            if let Ok(icon) = std::panic::catch_unwind(|| app.icon()) { if let Some(icon) = icon { return Some(icon); } }
         }
     }
     for app in apps {
         if let Ok(exec) = std::panic::catch_unwind(|| app.executable()) {
             let exec_str = exec.to_string_lossy().to_lowercase();
             if !exec_str.is_empty() && class_lower.contains(&exec_str) {
-                if let Ok(icon) = std::panic::catch_unwind(|| app.icon()) {
-                    if let Some(icon) = icon { return Some(icon); }
-                }
+                if let Ok(icon) = std::panic::catch_unwind(|| app.icon()) { if let Some(icon) = icon { return Some(icon); } }
             }
         }
     }
