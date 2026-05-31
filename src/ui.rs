@@ -3,6 +3,7 @@ use crate::hypr::{HyprEvent, WindowInfo};
 use crate::launcher::{self, AppItem};
 use gtk4::gdk::Display;
 use gtk4::gio;
+use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{
     Application, ApplicationWindow, Box, Button, CssProvider, EventControllerMotion, GestureClick,
@@ -181,7 +182,7 @@ fn create_dock_content_layout(config: &Config) -> (Box, Box, Box, HashMap<String
     menu_section.append(&launcher_button);
     content.append(&menu_section);
 
-    // Separator between launcher and apps
+    // Separator
     let launcher_sep = Separator::new(Orientation::Vertical);
     launcher_sep.add_css_class(CLASS_DOCK_SEPARATOR);
     content.append(&launcher_sep);
@@ -580,16 +581,18 @@ fn show_context_menu(ui: &Rc<DockUI>, button: &Button, class: &str, is_pinned: b
         .orientation(Orientation::Vertical)
         .build();
 
-    let action_button = Button::builder()
+    let action_btn = Button::builder()
         .label(if is_pinned { "Remove from Favorites" } else { "Add to Favorites" })
         .has_frame(false)
         .build();
-    action_button.add_css_class(CLASS_CONTEXT_MENU_ITEM);
+    action_btn.add_css_class(CLASS_CONTEXT_MENU_ITEM);
 
     let ui_clone = ui.clone();
     let class_clone = class.to_string();
     let popover_clone = popover.clone();
-    action_button.connect_clicked(move |_| {
+    
+    action_btn.connect_clicked(move |_| {
+        eprintln!("HyprDock: Context menu button clicked for {} (is_pinned: {})", class_clone, is_pinned);
         if is_pinned {
             unpin_app(&ui_clone, &class_clone);
         } else {
@@ -598,7 +601,7 @@ fn show_context_menu(ui: &Rc<DockUI>, button: &Button, class: &str, is_pinned: b
         popover_clone.popdown();
     });
 
-    menu_box.append(&action_button);
+    menu_box.append(&action_btn);
     popover.set_child(Some(&menu_box));
     popover.set_parent(button);
     popover.popup();
@@ -607,28 +610,49 @@ fn show_context_menu(ui: &Rc<DockUI>, button: &Button, class: &str, is_pinned: b
 fn pin_app(ui: &Rc<DockUI>, class: &str) {
     let mut config = ui.config.borrow_mut();
     let class_lower = class.to_lowercase();
+    
     if !config.pinned_apps.iter().any(|p| p.to_lowercase() == class_lower) {
+        eprintln!("HyprDock: Pinning app: {}", class);
         config.pinned_apps.push(class.to_string());
         crate::config::save_config(&config);
         
-        // IMPORTANT: Drop mutable borrow before refreshing
         drop(config);
-        refresh_dock(ui);
+        
+        let ui_clone = ui.clone();
+        glib::idle_add_local(move || {
+            refresh_dock(&ui_clone);
+            glib::ControlFlow::Break
+        });
+    } else {
+        eprintln!("HyprDock: App {} is already pinned", class);
     }
 }
 
 fn unpin_app(ui: &Rc<DockUI>, class: &str) {
     let mut config = ui.config.borrow_mut();
     let class_lower = class.to_lowercase();
-    config.pinned_apps.retain(|p| p.to_lowercase() != class_lower);
-    crate::config::save_config(&config);
+    let original_len = config.pinned_apps.len();
     
-    // IMPORTANT: Drop mutable borrow before refreshing
-    drop(config);
-    refresh_dock(ui);
+    config.pinned_apps.retain(|p| p.to_lowercase() != class_lower);
+    
+    if config.pinned_apps.len() < original_len {
+        eprintln!("HyprDock: Unpinning app: {}", class);
+        crate::config::save_config(&config);
+        
+        drop(config);
+        
+        let ui_clone = ui.clone();
+        glib::idle_add_local(move || {
+            refresh_dock(&ui_clone);
+            glib::ControlFlow::Break
+        });
+    } else {
+        eprintln!("HyprDock: App {} was not found in pinned list", class);
+    }
 }
 
 fn refresh_dock(ui: &Rc<DockUI>) {
+    eprintln!("HyprDock: Refreshing dock layout...");
     let config = ui.config.borrow().clone();
     clear_container(&ui.pins_box);
     let mut pins_map = ui.pins_map.borrow_mut();
@@ -642,7 +666,6 @@ fn refresh_dock(ui: &Rc<DockUI>) {
     }
 
     let windows = ui.last_windows.borrow().clone();
-    // Drop the borrow before calling update_taskbar just in case
     drop(pins_map);
     update_taskbar(ui, windows);
 }
