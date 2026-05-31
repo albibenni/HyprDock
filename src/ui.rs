@@ -6,7 +6,7 @@ use gtk4::gio;
 use gtk4::prelude::*;
 use gtk4::{
     Application, ApplicationWindow, Box, Button, CssProvider, EventControllerMotion, IconTheme,
-    Image, Label, ListBox, ListBoxRow, MenuButton, Orientation, Popover, Revealer,
+    Image, Label, ListBox, ListBoxRow, Orientation, Popover, Revealer,
     RevealerTransitionType, ScrolledWindow, SearchEntry, Separator,
 };
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
@@ -18,7 +18,7 @@ use std::cell::RefCell;
 const DOCK_NAMESPACE: &str = "hyprdock";
 
 // --- Constants: Icons ---
-const LAUNCHER_ICON_SIZE: i32 = 32;
+const LAUNCHER_ICON_SIZE: i32 = 38;
 const FALLBACK_ICON_NAME: &str = "application-x-executable";
 
 // --- Constants: CSS Classes ---
@@ -146,6 +146,11 @@ fn create_dock_content_layout(config: &Config) -> (Box, Box, Box, Popover) {
     let (launcher_button, launcher_popover) = create_launcher();
     content.append(&launcher_button);
 
+    // Separator between launcher and apps
+    let launcher_sep = Separator::new(Orientation::Vertical);
+    launcher_sep.add_css_class(CLASS_DOCK_SEPARATOR);
+    content.append(&launcher_sep);
+
     // Pinned Apps (Preferred)
     let pins_box = Box::builder()
         .orientation(Orientation::Horizontal)
@@ -207,17 +212,23 @@ fn create_pinned_app_button(class: &str, icon_size: i32) -> Button {
     button
 }
 
-fn create_launcher() -> (MenuButton, Popover) {
-    let button = MenuButton::builder()
-        .icon_name("start-here-symbolic")
+fn create_launcher() -> (Button, Popover) {
+    let button = Button::builder()
         .build();
     button.add_css_class(CLASS_LAUNCHER_BUTTON);
+
+    let icon = Image::builder()
+        .icon_name("start-here-symbolic")
+        .pixel_size(LAUNCHER_ICON_SIZE)
+        .build();
+    button.set_child(Some(&icon));
 
     let popover = Popover::builder()
         .position(gtk4::PositionType::Top)
         .autohide(true)
         .build();
     popover.add_css_class(CLASS_LAUNCHER_POPOVER);
+    popover.set_parent(&button);
 
     let launcher_box = Box::builder()
         .orientation(Orientation::Vertical)
@@ -269,7 +280,11 @@ fn create_launcher() -> (MenuButton, Popover) {
     });
 
     popover.set_child(Some(&launcher_box));
-    button.set_popover(Some(&popover));
+    
+    let popover_click = popover.clone();
+    button.connect_clicked(move |_| {
+        popover_click.popup();
+    });
 
     (button, popover)
 }
