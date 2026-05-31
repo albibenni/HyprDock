@@ -27,7 +27,6 @@ const CLASS_DOCK_CONTENT: &str = "dock-content";
 const CLASS_DOCK_SEPARATOR: &str = "dock-separator";
 const CLASS_TRIGGER_BOX: &str = "trigger-box";
 const CLASS_TASKBAR_ITEM: &str = "taskbar-item";
-const CLASS_TASKBAR_ICON: &str = "taskbar-icon";
 const CLASS_LAUNCHER_BUTTON: &str = "launcher-button";
 const CLASS_LAUNCHER_POPOVER: &str = "launcher-popover";
 const CLASS_LAUNCHER_LIST: &str = "launcher-list";
@@ -480,7 +479,6 @@ fn show_context_menu(ui: &Rc<DockUI>, button: &Button, class: &str, is_pinned: b
     menu_box.append(&fav_btn);
 
     if !crate::hypr::get_all_windows_by_class(class).is_empty() {
-        let ui_close = ui.clone();
         let class_close = class.to_string();
         let p_close = popover.clone();
         let close_btn = Button::builder().has_frame(false).label("Close Application").build();
