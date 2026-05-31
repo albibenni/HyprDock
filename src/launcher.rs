@@ -6,15 +6,14 @@ pub struct AppItem {
     pub name: String,
     pub exec: String,
     pub icon: Option<gio::Icon>,
+    pub app_info: Option<gio::AppInfo>, // Store the original AppInfo for reliable launching
 }
 
 pub fn get_all_apps() -> Vec<AppItem> {
-    println!("Launcher: Fetching all apps...");
     let mut items = Vec::new();
     
     let apps = gio::AppInfo::all();
     for app in apps {
-        // Wrap every call that could return a null pointer in GLib/C
         let should_show = std::panic::catch_unwind(|| app.should_show()).unwrap_or(false);
         if !should_show { continue; }
 
@@ -27,11 +26,24 @@ pub fn get_all_apps() -> Vec<AppItem> {
 
         let icon = std::panic::catch_unwind(|| app.icon()).unwrap_or(None);
 
-        items.push(AppItem { name, exec, icon });
+        items.push(AppItem { 
+            name, 
+            exec, 
+            icon,
+            app_info: Some(app),
+        });
     }
     
-    println!("Launcher: Found {} apps", items.len());
     items
+}
+
+pub fn launch_app_item(item: &AppItem) {
+    if let Some(app_info) = &item.app_info {
+        let _ = app_info.launch(&[], gio::AppLaunchContext::NONE);
+    } else {
+        // Fallback to name search if AppInfo is missing (shouldn't happen with current logic)
+        launch_app(&item.name);
+    }
 }
 
 pub fn launch_app(app_name: &str) {

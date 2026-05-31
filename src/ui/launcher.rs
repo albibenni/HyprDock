@@ -1,5 +1,5 @@
 use gtk4::prelude::*;
-use gtk4::{Button, Popover, Box, SearchEntry, ScrolledWindow, ListBox, Orientation, ListBoxRow, Image, Label};
+use gtk4::{Button, Popover, Box, SearchEntry, ScrolledWindow, Orientation, Image, Label};
 use crate::ui::constants::*;
 use crate::ui::utils::create_base_button;
 use crate::launcher::{self, AppItem};
@@ -26,26 +26,34 @@ pub fn create_launcher() -> (Button, Popover) {
     let search_entry = SearchEntry::builder().placeholder_text("Search applications...").build();
     launcher_box.append(&search_entry);
 
-    let scrolled = ScrolledWindow::builder().propagate_natural_height(true).build();
+    let scrolled = ScrolledWindow::builder()
+        .propagate_natural_height(true)
+        .vscrollbar_policy(gtk4::PolicyType::Automatic)
+        .hscrollbar_policy(gtk4::PolicyType::Never)
+        .build();
     launcher_box.append(&scrolled);
 
-    let list_box = ListBox::builder().selection_mode(gtk4::SelectionMode::None).build();
-    list_box.add_css_class(CLASS_LAUNCHER_LIST);
-    scrolled.set_child(Some(&list_box));
+    // Use a Box instead of ListBox for ultimate click reliability and built-in Button animations
+    let apps_container = Box::builder()
+        .orientation(Orientation::Vertical)
+        .spacing(2)
+        .build();
+    apps_container.add_css_class(CLASS_LAUNCHER_LIST);
+    scrolled.set_child(Some(&apps_container));
 
-    let lb_clone = list_box.clone();
+    let ac_clone = apps_container.clone();
     let p_clone = popover.clone();
     search_entry.connect_search_changed(move |entry| {
         let query = entry.text().to_lowercase();
         let apps: Vec<AppItem> = launcher::get_all_apps().into_iter()
             .filter(|a| a.name.to_lowercase().contains(&query)).collect();
-        update_launcher_list(&lb_clone, &apps, &p_clone);
+        update_launcher_list(&ac_clone, &apps, &p_clone);
     });
 
-    let lb_init = list_box.clone();
+    let ac_init = apps_container.clone();
     let p_init = popover.clone();
     popover.connect_show(move |_| {
-        update_launcher_list(&lb_init, &launcher::get_all_apps(), &p_init);
+        update_launcher_list(&ac_init, &launcher::get_all_apps(), &p_init);
     });
 
     popover.set_child(Some(&launcher_box));
@@ -56,11 +64,17 @@ pub fn create_launcher() -> (Button, Popover) {
     (button, popover)
 }
 
-fn update_launcher_list(list_box: &ListBox, apps: &[AppItem], popover: &Popover) {
-    while let Some(child) = list_box.first_child() { list_box.remove(&child); }
+fn update_launcher_list(container: &Box, apps: &[AppItem], popover: &Popover) {
+    while let Some(child) = container.first_child() { container.remove(&child); }
+    
     for app in apps {
-        let row = ListBoxRow::new();
-        row.add_css_class(CLASS_LAUNCHER_ITEM);
+        // Use a standard Button for every app item. 
+        // This gives us guaranteed click signals and native GTK click animations.
+        let item_button = Button::builder()
+            .has_frame(false)
+            .build();
+        item_button.add_css_class(CLASS_LAUNCHER_ITEM);
+
         let item_box = Box::builder()
             .orientation(Orientation::Horizontal)
             .spacing(12)
@@ -76,17 +90,21 @@ fn update_launcher_list(list_box: &ListBox, apps: &[AppItem], popover: &Popover)
 
         let label = Label::new(Some(&app.name));
         label.set_halign(gtk4::Align::Start);
+        label.set_hexpand(true);
 
         item_box.append(&icon);
         item_box.append(&label);
-        row.set_child(Some(&item_box));
+        item_button.set_child(Some(&item_box));
 
-        let app_name = app.name.clone();
+        let app_clone = app.clone();
         let p_clone = popover.clone();
-        row.connect_activate(move |_| {
-            launcher::launch_app(&app_name);
+        
+        item_button.connect_clicked(move |_| {
+            println!("HyprDock: Launching {} via button click", app_clone.name);
+            launcher::launch_app_item(&app_clone);
             p_clone.popdown();
         });
-        list_box.append(&row);
+        
+        container.append(&item_button);
     }
 }
