@@ -8,6 +8,7 @@ pub mod context_menu;
 
 use crate::config::Config;
 use crate::hypr::{HyprEvent, WindowInfo};
+use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{Application, ApplicationWindow, Box, Button, Popover, Orientation};
 use gtk4_layer_shell::LayerShell;
@@ -34,6 +35,7 @@ pub struct DockUI {
     pub active_address: RefCell<Option<String>>,
     pub last_windows: RefCell<Vec<WindowInfo>>,
     pub config: RefCell<Config>,
+    pub hide_timeout: RefCell<Option<glib::SourceId>>,
 }
 
 pub fn initialize_styling() {
@@ -74,15 +76,6 @@ pub fn build_ui(app: &Application, config: &Config) -> Rc<DockUI> {
     let context_menu = Popover::builder().has_arrow(true).autohide(true).build();
     context_menu.add_css_class(CLASS_CONTEXT_MENU);
 
-    if config.auto_hide {
-        setup_auto_hide(&window, &content, &launcher_popover, &context_menu, config);
-    } else {
-        window.set_exclusive_zone(config.exclusive_zone);
-        window.set_child(Some(&content));
-    }
-
-    window.present();
-
     let ui = Rc::new(DockUI {
         window,
         taskbar_box,
@@ -93,7 +86,17 @@ pub fn build_ui(app: &Application, config: &Config) -> Rc<DockUI> {
         active_address: RefCell::new(None),
         last_windows: RefCell::new(Vec::new()),
         config: RefCell::new(config.clone()),
+        hide_timeout: RefCell::new(None),
     });
+
+    if config.auto_hide {
+        setup_auto_hide(&ui, &content);
+    } else {
+        ui.window.set_exclusive_zone(config.exclusive_zone);
+        ui.window.set_child(Some(&content));
+    }
+
+    ui.window.present();
 
     for (class, button) in ui.pins_map.borrow().iter() {
         attach_context_menu(&ui, button, class, true);

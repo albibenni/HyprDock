@@ -12,7 +12,16 @@ pub fn attach_context_menu(ui: &Rc<DockUI>, button: &Button, class: &str, is_pin
     let ui_clone = ui.clone();
     let btn_clone = button.clone();
     let class_clone = class.to_string();
-    gesture.connect_pressed(move |_, _, _, _| show_context_menu(&ui_clone, &btn_clone, &class_clone, is_pinned));
+    
+    gesture.connect_pressed(move |_, _, _, _| {
+        // Cancel any pending hide instantly when right-clicking.
+        // This prevents the dock from hiding while the menu is about to open.
+        if let Some(source_id) = ui_clone.hide_timeout.borrow_mut().take() {
+            source_id.remove();
+        }
+        show_context_menu(&ui_clone, &btn_clone, &class_clone, is_pinned);
+    });
+    
     button.add_controller(gesture);
 }
 
