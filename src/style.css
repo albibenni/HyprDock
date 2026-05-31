@@ -14,7 +14,7 @@
 }
 
 .dock-separator {
-  background-color: rgba(255, 255, 255, 0.3);
+  background-color: rgba(255, 255, 255, 0.15);
   min-width: 1px;
   margin: 8px 6px;
 }
@@ -39,22 +39,34 @@
   transition: all 0.1s ease-out;
 }
 
-/* macOS-style dot indicators using radial gradients */
-.open-app {
+/* Indicators */
+
+/* 1. Open Pinned App: Subtle grey/white dot */
+.pinned-app.open-app {
   background-image: radial-gradient(
     circle at center 95%,
-    rgba(137, 180, 250, 0.4) 2px,
+    rgba(255, 255, 255, 0.5) 2px,
     transparent 2px
   );
 }
 
-.focused-app {
-  background-color: rgba(255, 255, 255, 0.08);
-  box-shadow: 0 0 15px rgba(137, 180, 250, 0.4);
+/* 2. Open Unpinned App: Bright blue dot */
+.open-app {
   background-image: radial-gradient(
     circle at center 95%,
     #89b4fa 2px,
     transparent 2px
+  );
+}
+
+/* 3. Focused App: Bright blue dot + subtle background glow */
+.focused-app {
+  background-color: rgba(137, 180, 250, 0.1);
+  box-shadow: 0 0 15px rgba(137, 180, 250, 0.2);
+  background-image: radial-gradient(
+    circle at center 95%,
+    #89b4fa 3px,
+    transparent 3px
   );
 }
 
@@ -79,6 +91,7 @@
 .launcher-button:hover {
   background-color: rgba(255, 255, 255, 0.1);
   border-radius: 12px;
+  transform: scale(1.1);
 }
 
 .launcher-popover {

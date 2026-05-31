@@ -13,6 +13,7 @@ use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use std::fs;
 use std::rc::Rc;
 use std::cell::RefCell;
+use std::collections::HashMap;
 
 // --- Constants: Layout ---
 const DOCK_NAMESPACE: &str = "hyprdock";
@@ -43,6 +44,7 @@ pub struct DockUI {
     pub window: ApplicationWindow,
     pub taskbar_box: Box,
     pub pins_box: Box,
+    pub pins_map: HashMap<String, Button>,
     pub launcher_popover: Popover,
     pub active_address: RefCell<Option<String>>,
     pub last_windows: RefCell<Vec<WindowInfo>>,
@@ -88,7 +90,7 @@ pub fn build_ui(app: &Application, config: &Config) -> Rc<DockUI> {
     setup_layer_shell(&window);
     window.add_css_class(CLASS_DOCK_WINDOW);
 
-    let (content, taskbar_box, pins_box, launcher_popover) = create_dock_content_layout(config);
+    let (content, taskbar_box, pins_box, pins_map, launcher_popover) = create_dock_content_layout(config);
 
     // Dynamic background color from config
     let color_provider = CssProvider::new();
@@ -108,6 +110,7 @@ pub fn build_ui(app: &Application, config: &Config) -> Rc<DockUI> {
         window,
         taskbar_box,
         pins_box,
+        pins_map,
         launcher_popover,
         active_address: RefCell::new(None),
         last_windows: RefCell::new(Vec::new()),
@@ -132,7 +135,7 @@ fn setup_layer_shell(window: &ApplicationWindow) {
     window.set_keyboard_mode(KeyboardMode::OnDemand);
 }
 
-fn create_dock_content_layout(config: &Config) -> (Box, Box, Box, Popover) {
+fn create_dock_content_layout(config: &Config) -> (Box, Box, Box, HashMap<String, Button>, Popover) {
     let content = Box::builder()
         .orientation(Orientation::Horizontal)
         .spacing(8)
@@ -156,7 +159,7 @@ fn create_dock_content_layout(config: &Config) -> (Box, Box, Box, Popover) {
         .orientation(Orientation::Horizontal)
         .spacing(8)
         .build();
-    populate_pinned_apps(&pins_box, config);
+    let pins_map = populate_pinned_apps(&pins_box, config);
     content.append(&pins_box);
 
     // Vertical Separator (macOS style)
@@ -171,14 +174,17 @@ fn create_dock_content_layout(config: &Config) -> (Box, Box, Box, Popover) {
         .build();
     content.append(&taskbar_box);
 
-    (content, taskbar_box, pins_box, launcher_popover)
+    (content, taskbar_box, pins_box, pins_map, launcher_popover)
 }
 
-fn populate_pinned_apps(container: &Box, config: &Config) {
+fn populate_pinned_apps(container: &Box, config: &Config) -> HashMap<String, Button> {
+    let mut map = HashMap::new();
     for class in &config.pinned_apps {
         let pin = create_pinned_app_button(class, config.icon_size);
         container.append(&pin);
+        map.insert(class.to_lowercase(), pin);
     }
+    map
 }
 
 fn create_pinned_app_button(class: &str, icon_size: i32) -> Button {
@@ -427,10 +433,27 @@ fn update_taskbar(ui: &DockUI, windows: Vec<WindowInfo>) {
     clear_container(&ui.taskbar_box);
     let active_addr = ui.active_address.borrow();
 
+    // Reset all pinned apps states
+    for button in ui.pins_map.values() {
+        button.remove_css_class(CLASS_OPEN_APP);
+        button.remove_css_class(CLASS_FOCUSED_APP);
+    }
+
     for win in windows {
         let is_focused = active_addr.as_ref() == Some(&win.address);
-        let item = create_taskbar_item(&win, is_focused, ui.config.icon_size);
-        ui.taskbar_box.append(&item);
+        let class_lower = win.class.to_lowercase();
+
+        if let Some(pinned_btn) = ui.pins_map.get(&class_lower) {
+            // Update pinned app state
+            pinned_btn.add_css_class(CLASS_OPEN_APP);
+            if is_focused {
+                pinned_btn.add_css_class(CLASS_FOCUSED_APP);
+            }
+        } else {
+            // Add to taskbar section if not pinned
+            let item = create_taskbar_item(&win, is_focused, ui.config.icon_size);
+            ui.taskbar_box.append(&item);
+        }
     }
 }
 
