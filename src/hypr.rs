@@ -71,8 +71,6 @@ pub fn start_listener(tx: UnboundedSender<HyprEvent>) {
 
             let tx_active = tx.clone();
             listener.add_active_window_change_handler(move |_data| {
-                // The listener data only has title and class, not address.
-                // We fetch the address via hyprctl for accuracy.
                 if let Ok(active) = get_active_window_via_hyprctl() {
                     let _ = tx_active.send(HyprEvent::ActiveWindowChanged(Some(active.address)));
                 } else {
@@ -157,5 +155,26 @@ pub fn get_first_window_by_class(class: &str) -> Option<String> {
             .map(|w| w.address)
     } else {
         None
+    }
+}
+
+pub fn get_all_windows_by_class(class: &str) -> Vec<String> {
+    if let Ok(windows) = get_clients_via_hyprctl() {
+        let class_lower = class.to_lowercase();
+        windows.into_iter()
+            .filter(|w| w.class.to_lowercase() == class_lower)
+            .map(|w| w.address)
+            .collect()
+    } else {
+        Vec::new()
+    }
+}
+
+pub fn close_all_windows_by_class(class: &str) {
+    let addresses = get_all_windows_by_class(class);
+    for addr in addresses {
+        let _ = std::process::Command::new("hyprctl")
+            .args(["dispatch", "closewindow", &format!("address:{}", addr)])
+            .status();
     }
 }

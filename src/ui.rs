@@ -625,27 +625,44 @@ fn show_context_menu(ui: &Rc<DockUI>, button: &Button, class: &str, is_pinned: b
         .orientation(Orientation::Vertical)
         .build();
 
-    let action_btn = Button::builder()
+    // 1. Favorite Action
+    let fav_btn = Button::builder()
         .label(if is_pinned { "Remove from Favorites" } else { "Add to Favorites" })
         .has_frame(false)
         .build();
-    action_btn.add_css_class(CLASS_CONTEXT_MENU_ITEM);
+    fav_btn.add_css_class(CLASS_CONTEXT_MENU_ITEM);
 
-    let ui_clone = ui.clone();
-    let class_clone = class.to_string();
-    let popover_clone = popover.clone();
-    
-    action_btn.connect_clicked(move |_| {
-        eprintln!("HyprDock: Context menu button clicked for {} (is_pinned: {})", class_clone, is_pinned);
+    let ui_fav = ui.clone();
+    let class_fav = class.to_string();
+    let popover_fav = popover.clone();
+    fav_btn.connect_clicked(move |_| {
         if is_pinned {
-            unpin_app(&ui_clone, &class_clone);
+            unpin_app(&ui_fav, &class_fav);
         } else {
-            pin_app(&ui_clone, &class_clone);
+            pin_app(&ui_fav, &class_fav);
         }
-        popover_clone.popdown();
+        popover_fav.popdown();
     });
+    menu_box.append(&fav_btn);
 
-    menu_box.append(&action_btn);
+    // 2. Close App Action (Only if open)
+    let open_windows = crate::hypr::get_all_windows_by_class(class);
+    if !open_windows.is_empty() {
+        let close_btn = Button::builder()
+            .label("Close Application")
+            .has_frame(false)
+            .build();
+        close_btn.add_css_class(CLASS_CONTEXT_MENU_ITEM);
+
+        let class_close = class.to_string();
+        let popover_close = popover.clone();
+        close_btn.connect_clicked(move |_| {
+            crate::hypr::close_all_windows_by_class(&class_close);
+            popover_close.popdown();
+        });
+        menu_box.append(&close_btn);
+    }
+
     popover.set_child(Some(&menu_box));
     popover.set_parent(button);
     popover.popup();
