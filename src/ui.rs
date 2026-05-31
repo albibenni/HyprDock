@@ -15,19 +15,16 @@ use std::rc::Rc;
 use std::cell::RefCell;
 
 // --- Constants: Layout ---
-const DEFAULT_EXCLUSIVE_ZONE: i32 = 60; // Slightly more for macOS feel
-const TRIGGER_ZONE_HEIGHT: i32 = 10;
-const CONTENT_SPACING: i32 = 8; // Tighter spacing like macOS
 const DOCK_NAMESPACE: &str = "hyprdock";
 
 // --- Constants: Icons ---
-const DEFAULT_ICON_SIZE: i32 = 32; // Larger icons for macOS feel
 const LAUNCHER_ICON_SIZE: i32 = 32;
 const FALLBACK_ICON_NAME: &str = "application-x-executable";
 
 // --- Constants: CSS Classes ---
 const CLASS_DOCK_WINDOW: &str = "dock-window";
 const CLASS_DOCK_CONTENT: &str = "dock-content";
+const CLASS_DOCK_TRANSPARENT: &str = "dock-transparent";
 const CLASS_DOCK_SEPARATOR: &str = "dock-separator";
 const CLASS_TRIGGER_BOX: &str = "trigger-box";
 const CLASS_TASKBAR_ITEM: &str = "taskbar-item";
@@ -50,6 +47,7 @@ pub struct DockUI {
     pub launcher_popover: Popover,
     pub active_address: RefCell<Option<String>>,
     pub last_windows: RefCell<Vec<WindowInfo>>,
+    pub config: Config,
 }
 
 /// Initializes styling by loading internal and optional external CSS.
@@ -93,10 +91,14 @@ pub fn build_ui(app: &Application, config: &Config) -> Rc<DockUI> {
 
     let (content, taskbar_box, pins_box, launcher_popover) = create_dock_content_layout(config);
 
+    if config.transparent {
+        content.add_css_class(CLASS_DOCK_TRANSPARENT);
+    }
+
     if config.auto_hide {
-        setup_auto_hide_behavior(&window, &content, &launcher_popover);
+        setup_auto_hide_behavior(&window, &content, &launcher_popover, config);
     } else {
-        setup_static_behavior(&window, &content);
+        setup_static_behavior(&window, &content, config);
     }
 
     window.present();
@@ -108,6 +110,7 @@ pub fn build_ui(app: &Application, config: &Config) -> Rc<DockUI> {
         launcher_popover,
         active_address: RefCell::new(None),
         last_windows: RefCell::new(Vec::new()),
+        config: config.clone(),
     })
 }
 
@@ -131,7 +134,7 @@ fn setup_layer_shell(window: &ApplicationWindow) {
 fn create_dock_content_layout(config: &Config) -> (Box, Box, Box, Popover) {
     let content = Box::builder()
         .orientation(Orientation::Horizontal)
-        .spacing(CONTENT_SPACING)
+        .spacing(8)
         .halign(gtk4::Align::Center)
         .margin_top(4) // Spacing from screen edge
         .margin_bottom(4)
@@ -145,7 +148,7 @@ fn create_dock_content_layout(config: &Config) -> (Box, Box, Box, Popover) {
     // Pinned Apps (Preferred)
     let pins_box = Box::builder()
         .orientation(Orientation::Horizontal)
-        .spacing(CONTENT_SPACING)
+        .spacing(8)
         .build();
     populate_pinned_apps(&pins_box, config);
     content.append(&pins_box);
@@ -158,7 +161,7 @@ fn create_dock_content_layout(config: &Config) -> (Box, Box, Box, Popover) {
     // Taskbar
     let taskbar_box = Box::builder()
         .orientation(Orientation::Horizontal)
-        .spacing(CONTENT_SPACING)
+        .spacing(8)
         .build();
     content.append(&taskbar_box);
 
@@ -167,19 +170,19 @@ fn create_dock_content_layout(config: &Config) -> (Box, Box, Box, Popover) {
 
 fn populate_pinned_apps(container: &Box, config: &Config) {
     for class in &config.pinned_apps {
-        let pin = create_pinned_app_button(class);
+        let pin = create_pinned_app_button(class, config.icon_size);
         container.append(&pin);
     }
 }
 
-fn create_pinned_app_button(class: &str) -> Button {
+fn create_pinned_app_button(class: &str, icon_size: i32) -> Button {
     let button = Button::builder().build();
     button.add_css_class(CLASS_TASKBAR_ITEM);
     button.add_css_class(CLASS_PINNED_APP);
     button.set_tooltip_text(Some(class));
 
     let icon = Image::builder()
-        .pixel_size(DEFAULT_ICON_SIZE)
+        .pixel_size(icon_size)
         .build();
     icon.add_css_class(CLASS_TASKBAR_ICON);
 
@@ -315,12 +318,12 @@ fn populate_launcher_list(list_box: &ListBox, apps: &[AppItem], popover: &Popove
     }
 }
 
-fn setup_static_behavior(window: &ApplicationWindow, content: &Box) {
-    window.set_exclusive_zone(DEFAULT_EXCLUSIVE_ZONE);
+fn setup_static_behavior(window: &ApplicationWindow, content: &Box, config: &Config) {
+    window.set_exclusive_zone(config.exclusive_zone);
     window.set_child(Some(content));
 }
 
-fn setup_auto_hide_behavior(window: &ApplicationWindow, content: &Box, popover: &Popover) {
+fn setup_auto_hide_behavior(window: &ApplicationWindow, content: &Box, popover: &Popover, config: &Config) {
     window.set_exclusive_zone(0);
 
     let revealer = Revealer::builder()
@@ -330,7 +333,7 @@ fn setup_auto_hide_behavior(window: &ApplicationWindow, content: &Box, popover: 
         .build();
 
     let trigger_box = Box::builder()
-        .height_request(TRIGGER_ZONE_HEIGHT)
+        .height_request(config.trigger_height)
         .build();
     trigger_box.add_css_class(CLASS_TRIGGER_BOX);
 
@@ -342,7 +345,7 @@ fn setup_auto_hide_behavior(window: &ApplicationWindow, content: &Box, popover: 
     root_box.append(&trigger_box);
     window.set_child(Some(&root_box));
 
-    attach_auto_hide_controllers(window, &revealer, &trigger_box, &root_box, popover);
+    attach_auto_hide_controllers(window, &revealer, &trigger_box, &root_box, popover, config.exclusive_zone);
 }
 
 fn attach_auto_hide_controllers(
@@ -351,6 +354,7 @@ fn attach_auto_hide_controllers(
     trigger: &Box,
     root: &Box,
     popover: &Popover,
+    exclusive_zone: i32,
 ) {
     let enter_controller = EventControllerMotion::new();
     let win_clone = window.clone();
@@ -358,7 +362,7 @@ fn attach_auto_hide_controllers(
     enter_controller.connect_enter(move |_, _, _| {
         if !rev_clone.reveals_child() {
             rev_clone.set_reveal_child(true);
-            win_clone.set_exclusive_zone(DEFAULT_EXCLUSIVE_ZONE);
+            win_clone.set_exclusive_zone(exclusive_zone);
         }
     });
     trigger.add_controller(enter_controller);
@@ -406,7 +410,7 @@ fn update_taskbar(ui: &DockUI, windows: Vec<WindowInfo>) {
 
     for win in windows {
         let is_focused = active_addr.as_ref() == Some(&win.address);
-        let item = create_taskbar_item(&win, is_focused);
+        let item = create_taskbar_item(&win, is_focused, ui.config.icon_size);
         ui.taskbar_box.append(&item);
     }
 }
@@ -417,7 +421,7 @@ fn clear_container(container: &Box) {
     }
 }
 
-fn create_taskbar_item(win: &WindowInfo, is_focused: bool) -> Button {
+fn create_taskbar_item(win: &WindowInfo, is_focused: bool, icon_size: i32) -> Button {
     let button = Button::builder().build();
     button.add_css_class(CLASS_TASKBAR_ITEM);
     button.add_css_class(CLASS_OPEN_APP);
@@ -427,7 +431,7 @@ fn create_taskbar_item(win: &WindowInfo, is_focused: bool) -> Button {
     button.set_tooltip_text(Some(&win.title));
 
     let icon = Image::builder()
-        .pixel_size(DEFAULT_ICON_SIZE)
+        .pixel_size(icon_size)
         .build();
     icon.add_css_class(CLASS_TASKBAR_ICON);
 

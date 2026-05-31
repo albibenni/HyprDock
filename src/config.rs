@@ -7,13 +7,24 @@ use std::path::Path;
 pub struct Config {
     #[serde(default = "default_auto_hide")]
     pub auto_hide: bool,
+
     #[serde(default = "default_pinned_apps")]
     pub pinned_apps: Vec<String>,
+
+    #[serde(default = "default_icon_size")]
+    pub icon_size: i32,
+
+    #[serde(default = "default_exclusive_zone")]
+    pub exclusive_zone: i32,
+
+    #[serde(default = "default_trigger_height")]
+    pub trigger_height: i32,
+
+    #[serde(default = "default_transparent")]
+    pub transparent: bool,
 }
 
-fn default_auto_hide() -> bool {
-    true
-}
+fn default_auto_hide() -> bool { true }
 fn default_pinned_apps() -> Vec<String> {
     vec![
         "firefox".to_string(),
@@ -21,12 +32,20 @@ fn default_pinned_apps() -> Vec<String> {
         "thunar".to_string(),
     ]
 }
+fn default_icon_size() -> i32 { 32 }
+fn default_exclusive_zone() -> i32 { 60 }
+fn default_trigger_height() -> i32 { 10 }
+fn default_transparent() -> bool { false }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             auto_hide: default_auto_hide(),
             pinned_apps: default_pinned_apps(),
+            icon_size: default_icon_size(),
+            exclusive_zone: default_exclusive_zone(),
+            trigger_height: default_trigger_height(),
+            transparent: default_transparent(),
         }
     }
 }

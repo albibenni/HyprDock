@@ -1,101 +1,100 @@
 .dock-window {
-  background: transparent;
+    background: transparent;
 }
 
 .dock-content {
-  background-color: rgba(20, 20, 30, 0.15);
-  border-radius: 12px;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-  border-left: 1px solid rgba(255, 255, 255, 0.05);
-  border-right: 1px solid rgba(255, 255, 255, 0.05);
-  padding: 6px 12px;
-  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+    background-color: rgba(20, 20, 30, 0.85); /* Darker, slightly more opaque macOS dark mode */
+    border-radius: 32px; /* Perfect pill shape */
+    border-top: 1px solid rgba(255, 255, 255, 0.1); /* Subtle top edge "glass" reflection */
+    border-left: 1px solid rgba(255, 255, 255, 0.05);
+    border-right: 1px solid rgba(255, 255, 255, 0.05);
+    padding: 6px 12px;
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5); /* Deep shadow like macOS */
+    transition: all 0.3s ease;
+}
+
+.dock-transparent {
+    background-color: transparent;
+    border: none;
+    box-shadow: none;
 }
 
 .dock-separator {
-  background-color: rgba(255, 255, 255, 0.3);
-  min-width: 1px;
-  margin: 8px 6px;
+    background-color: rgba(255, 255, 255, 0.1);
+    min-width: 1px;
+    margin: 8px 6px;
 }
 
 .taskbar-item {
-  background-color: transparent;
-  border: 1px solid transparent;
-  border-radius: 12px;
-  padding: 6px;
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); /* Bouncy macOS feel */
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: 12px;
+    padding: 6px;
+    transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); /* Bouncy macOS feel */
 }
 
 .taskbar-item:hover {
-  background-color: rgba(255, 255, 255, 0.12);
-  transform: scale(1.35) translateY(-4px); /* Slight magnification on hover */
+    background-color: rgba(255, 255, 255, 0.12);
+    transform: scale(1.15) translateY(-4px); /* Slight magnification on hover */
 }
 
 .taskbar-item:active {
-  transform: scale(0.95) translateY(0px); /* "Press" effect on click */
-  transition: all 0.1s ease-out;
+    transform: scale(0.95) translateY(0px); /* "Press" effect on click */
+    transition: all 0.1s ease-out;
 }
 
 /* macOS-style dot indicators using radial gradients */
 .open-app {
-  background-image: radial-gradient(
-    circle at center 95%,
-    rgba(137, 180, 250, 0.4) 2px,
-    transparent 2px
-  );
+    background-image: radial-gradient(circle at center 95%, rgba(137, 180, 250, 0.4) 2px, transparent 2px);
 }
 
 .focused-app {
-  background-color: rgba(255, 255, 255, 0.08);
-  box-shadow: 0 0 15px rgba(137, 180, 250, 0.4);
-  background-image: radial-gradient(
-    circle at center 95%,
-    #89b4fa 2px,
-    transparent 2px
-  );
+    background-color: rgba(255, 255, 255, 0.08);
+    box-shadow: 0 0 15px rgba(137, 180, 250, 0.4);
+    background-image: radial-gradient(circle at center 95%, #89b4fa 2px, transparent 2px);
 }
 
 .taskbar-icon {
-  opacity: 0.85;
+    opacity: 0.85;
 }
 
 .focused-app .taskbar-icon {
-  opacity: 1;
+    opacity: 1.0;
 }
 
 .launcher-button {
-  background: transparent;
-  border: none;
-  padding: 8px;
-  margin-right: 4px;
-  transition: all 0.2s ease;
+    background: transparent;
+    border: none;
+    padding: 8px;
+    margin-right: 4px;
+    transition: all 0.2s ease;
 }
 
 .launcher-button:hover {
-  background-color: rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
+    background-color: rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
 }
 
 .launcher-popover {
-  background-color: rgba(25, 25, 35, 0.98);
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+    background-color: rgba(25, 25, 35, 0.98);
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
 }
 
 .launcher-list {
-  background: transparent;
+    background: transparent;
 }
 
 .launcher-item {
-  border-radius: 10px;
-  margin: 2px 4px;
+    border-radius: 10px;
+    margin: 2px 4px;
 }
 
 .launcher-item:hover {
-  background-color: rgba(137, 180, 250, 0.15);
+    background-color: rgba(137, 180, 250, 0.15);
 }
 
 .trigger-box {
-  background-color: rgba(0, 0, 0, 0.01);
+    background-color: rgba(0, 0, 0, 0.01);
 }
