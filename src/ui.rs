@@ -16,7 +16,7 @@ use std::cell::RefCell;
 
 // --- Constants: Layout ---
 const DEFAULT_EXCLUSIVE_ZONE: i32 = 60; // Slightly more for macOS feel
-const TRIGGER_ZONE_HEIGHT: i32 = 5;
+const TRIGGER_ZONE_HEIGHT: i32 = 10;
 const CONTENT_SPACING: i32 = 8; // Tighter spacing like macOS
 const DOCK_NAMESPACE: &str = "hyprdock";
 
@@ -123,9 +123,8 @@ fn setup_layer_shell(window: &ApplicationWindow) {
     window.set_layer(Layer::Top);
     window.set_namespace(Some(DOCK_NAMESPACE));
     window.set_anchor(Edge::Bottom, true);
-    // For a centered pill, we don't anchor to Left/Right
-    window.set_anchor(Edge::Left, false);
-    window.set_anchor(Edge::Right, false);
+    window.set_anchor(Edge::Left, true);
+    window.set_anchor(Edge::Right, true);
     window.set_keyboard_mode(KeyboardMode::OnDemand);
 }
 
