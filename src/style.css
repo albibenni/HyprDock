@@ -137,4 +137,23 @@
   background-color: rgba(255, 255, 255, 0.1);
 }
 
+/* Sections Visibility */
+
+.section-menu {
+  background-color: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  padding: 0 4px;
+}
+
+.section-favorites {
+  background-color: rgba(255, 255, 255, 0.03);
+  border-radius: 12px;
+  padding: 0 4px;
+}
+
+.section-tasks {
+  padding: 0 4px;
+}
+
+
 

@@ -27,3 +27,10 @@ background_color = "transparent"
 ## Custom Styling
 
 You can also provide a custom CSS file at `~/.config/hyprdock/style.css` to override any default styles.
+
+### Section Classes
+The dock is divided into three main sections that you can style individually:
+- `.section-menu`: The container for the launcher/menu button.
+- `.section-favorites`: The container for your pinned application icons.
+- `.section-tasks`: The container for unpinned, active application windows.
+

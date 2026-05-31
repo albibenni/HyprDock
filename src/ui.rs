@@ -38,6 +38,9 @@ const CLASS_OPEN_APP: &str = "open-app";
 const CLASS_FOCUSED_APP: &str = "focused-app";
 const CLASS_CONTEXT_MENU: &str = "context-menu";
 const CLASS_CONTEXT_MENU_ITEM: &str = "context-menu-item";
+const CLASS_SECTION_MENU: &str = "section-menu";
+const CLASS_SECTION_FAVORITES: &str = "section-favorites";
+const CLASS_SECTION_TASKS: &str = "section-tasks";
 
 // --- UI Components ---
 
@@ -160,41 +163,62 @@ fn setup_layer_shell(window: &ApplicationWindow) {
 fn create_dock_content_layout(config: &Config) -> (Box, Box, Box, HashMap<String, Button>, Popover) {
     let content = Box::builder()
         .orientation(Orientation::Horizontal)
-        .spacing(8)
+        .spacing(4)
         .halign(gtk4::Align::Center)
         .margin_top(4) // Spacing from screen edge
         .margin_bottom(4)
         .build();
     content.add_css_class(CLASS_DOCK_CONTENT);
 
-    // Launcher
+    // 1. Menu Section
+    let menu_section = Box::builder()
+        .orientation(Orientation::Horizontal)
+        .spacing(0)
+        .build();
+    menu_section.add_css_class(CLASS_SECTION_MENU);
+    
     let (launcher_button, launcher_popover) = create_launcher();
-    content.append(&launcher_button);
+    menu_section.append(&launcher_button);
+    content.append(&menu_section);
 
     // Separator between launcher and apps
     let launcher_sep = Separator::new(Orientation::Vertical);
     launcher_sep.add_css_class(CLASS_DOCK_SEPARATOR);
     content.append(&launcher_sep);
 
-    // Pinned Apps (Preferred)
+    // 2. Favorites Section
+    let favorites_section = Box::builder()
+        .orientation(Orientation::Horizontal)
+        .spacing(8)
+        .build();
+    favorites_section.add_css_class(CLASS_SECTION_FAVORITES);
+
     let pins_box = Box::builder()
         .orientation(Orientation::Horizontal)
         .spacing(8)
         .build();
     let pins_map = populate_pinned_apps(&pins_box, config);
-    content.append(&pins_box);
+    favorites_section.append(&pins_box);
+    content.append(&favorites_section);
 
     // Vertical Separator (macOS style)
     let separator = Separator::new(Orientation::Vertical);
     separator.add_css_class(CLASS_DOCK_SEPARATOR);
     content.append(&separator);
 
-    // Taskbar
+    // 3. Tasks Section
+    let tasks_section = Box::builder()
+        .orientation(Orientation::Horizontal)
+        .spacing(8)
+        .build();
+    tasks_section.add_css_class(CLASS_SECTION_TASKS);
+
     let taskbar_box = Box::builder()
         .orientation(Orientation::Horizontal)
         .spacing(8)
         .build();
-    content.append(&taskbar_box);
+    tasks_section.append(&taskbar_box);
+    content.append(&tasks_section);
 
     (content, taskbar_box, pins_box, pins_map, launcher_popover)
 }
