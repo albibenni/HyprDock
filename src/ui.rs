@@ -443,28 +443,72 @@ fn attach_auto_hide_controllers(
     context_popover: &Popover,
     exclusive_zone: i32,
 ) {
-    let enter_controller = EventControllerMotion::new();
-    let win_clone = window.clone();
-    let rev_clone = revealer.clone();
-    enter_controller.connect_enter(move |_, _, _| {
-        if !rev_clone.reveals_child() {
-            rev_clone.set_reveal_child(true);
-            win_clone.set_exclusive_zone(exclusive_zone);
+    let hide_timeout = Rc::new(RefCell::new(None::<glib::SourceId>));
+
+    // --- Helper to create a cancel-only controller ---
+    let create_cancel_controller = |h_timeout: Rc<RefCell<Option<glib::SourceId>>>| {
+        let ctrl = EventControllerMotion::new();
+        let h_timeout_enter = h_timeout.clone();
+        ctrl.connect_enter(move |_, _, _| {
+            if let Some(source_id) = h_timeout_enter.borrow_mut().take() {
+                source_id.remove();
+            }
+        });
+        let h_timeout_motion = h_timeout.clone();
+        ctrl.connect_motion(move |_, _, _| {
+            if let Some(source_id) = h_timeout_motion.borrow_mut().take() {
+                source_id.remove();
+            }
+        });
+        ctrl
+    };
+
+    // --- Enter/Motion logic for Reveal/Persistence ---
+    let enter_trigger = EventControllerMotion::new();
+    let win_reveal = window.clone();
+    let rev_reveal = revealer.clone();
+    let h_timeout_trigger = hide_timeout.clone();
+
+    enter_trigger.connect_enter(move |_, _, _| {
+        if let Some(source_id) = h_timeout_trigger.borrow_mut().take() {
+            source_id.remove();
+        }
+        if !rev_reveal.reveals_child() {
+            rev_reveal.set_reveal_child(true);
+            win_reveal.set_exclusive_zone(exclusive_zone);
         }
     });
-    trigger.add_controller(enter_controller);
+    trigger.add_controller(enter_trigger);
 
+    // Add cancel-only controllers to other areas to ensure stability
+    root.add_controller(create_cancel_controller(hide_timeout.clone()));
+
+    // --- Leave Controller (Root) ---
     let leave_controller = EventControllerMotion::new();
-    let win_clone = window.clone();
-    let rev_clone = revealer.clone();
-    let l_pop_clone = launcher_popover.clone();
-    let c_pop_clone = context_popover.clone();
+    let win_hide = window.clone();
+    let rev_hide = revealer.clone();
+    let l_pop = launcher_popover.clone();
+    let c_pop = context_popover.clone();
+    let h_timeout_leave = hide_timeout.clone();
+
     leave_controller.connect_leave(move |_| {
-        // ONLY hide if NO popover is visible
-        if rev_clone.reveals_child() && !l_pop_clone.is_visible() && !c_pop_clone.is_visible() {
-            rev_clone.set_reveal_child(false);
-            win_clone.set_exclusive_zone(0);
-        }
+        let win_c = win_hide.clone();
+        let rev_c = rev_hide.clone();
+        let l_pop_c = l_pop.clone();
+        let c_pop_c = c_pop.clone();
+        let h_timeout_c = h_timeout_leave.clone();
+
+        // Increase to 1500ms for ultimate stability against tooltips
+        let source_id = glib::timeout_add_local(std::time::Duration::from_millis(1500), move || {
+            if rev_c.reveals_child() && !l_pop_c.is_visible() && !c_pop_c.is_visible() {
+                rev_c.set_reveal_child(false);
+                win_c.set_exclusive_zone(0);
+            }
+            *h_timeout_c.borrow_mut() = None;
+            glib::ControlFlow::Break
+        });
+
+        *h_timeout_leave.borrow_mut() = Some(source_id);
     });
     root.add_controller(leave_controller);
 }
