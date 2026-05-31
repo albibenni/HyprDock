@@ -1,9 +1,9 @@
 use directories::ProjectDirs;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Serialize, Clone)]
 pub struct Config {
     #[serde(default = "default_auto_hide")]
     pub auto_hide: bool,
@@ -70,6 +70,24 @@ pub fn load_config() -> Config {
     }
 
     config
+}
+
+pub fn save_config(config: &Config) {
+    if let Some(proj_dirs) = get_project_dirs() {
+        let config_dir = proj_dirs.config_dir();
+        let config_path = config_dir.join("config.toml");
+
+        ensure_config_dir(config_dir);
+
+        match toml::to_string_pretty(config) {
+            Ok(content) => {
+                if let Err(e) = fs::write(&config_path, content) {
+                    eprintln!("Failed to write config file: {}", e);
+                }
+            }
+            Err(e) => eprintln!("Failed to serialize config: {}", e),
+        }
+    }
 }
 
 pub fn get_project_dirs() -> Option<ProjectDirs> {

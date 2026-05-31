@@ -5,8 +5,8 @@ use gtk4::gdk::Display;
 use gtk4::gio;
 use gtk4::prelude::*;
 use gtk4::{
-    Application, ApplicationWindow, Box, Button, CssProvider, EventControllerMotion, IconTheme,
-    Image, Label, ListBox, ListBoxRow, Orientation, Popover, Revealer,
+    Application, ApplicationWindow, Box, Button, CssProvider, EventControllerMotion, GestureClick,
+    IconTheme, Image, Label, ListBox, ListBoxRow, Orientation, Popover, Revealer,
     RevealerTransitionType, ScrolledWindow, SearchEntry, Separator,
 };
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
@@ -36,6 +36,8 @@ const CLASS_LAUNCHER_ITEM: &str = "launcher-item";
 const CLASS_PINNED_APP: &str = "pinned-app";
 const CLASS_OPEN_APP: &str = "open-app";
 const CLASS_FOCUSED_APP: &str = "focused-app";
+const CLASS_CONTEXT_MENU: &str = "context-menu";
+const CLASS_CONTEXT_MENU_ITEM: &str = "context-menu-item";
 
 // --- UI Components ---
 
@@ -44,11 +46,12 @@ pub struct DockUI {
     pub window: ApplicationWindow,
     pub taskbar_box: Box,
     pub pins_box: Box,
-    pub pins_map: HashMap<String, Button>,
+    pub pins_map: RefCell<HashMap<String, Button>>,
     pub launcher_popover: Popover,
+    pub context_menu: Popover,
     pub active_address: RefCell<Option<String>>,
     pub last_windows: RefCell<Vec<WindowInfo>>,
-    pub config: Config,
+    pub config: RefCell<Config>,
 }
 
 /// Initializes styling by loading internal and optional external CSS.
@@ -98,24 +101,43 @@ pub fn build_ui(app: &Application, config: &Config) -> Rc<DockUI> {
     color_provider.load_from_data(&css);
     content.style_context().add_provider(&color_provider, gtk4::STYLE_PROVIDER_PRIORITY_USER);
 
+    // Reusable context menu popover
+    let context_menu = Popover::builder()
+        .has_arrow(true)
+        .autohide(true)
+        .build();
+    context_menu.add_css_class(CLASS_CONTEXT_MENU);
+
     if config.auto_hide {
-        setup_auto_hide_behavior(&window, &content, &launcher_popover, config);
+        setup_auto_hide_behavior(&window, &content, &launcher_popover, &context_menu, config);
     } else {
         setup_static_behavior(&window, &content, config);
     }
 
     window.present();
 
-    Rc::new(DockUI {
+    let ui = Rc::new(DockUI {
         window,
         taskbar_box,
         pins_box,
-        pins_map,
+        pins_map: RefCell::new(pins_map),
         launcher_popover,
+        context_menu,
         active_address: RefCell::new(None),
         last_windows: RefCell::new(Vec::new()),
-        config: config.clone(),
-    })
+        config: RefCell::new(config.clone()),
+    });
+
+    setup_context_menu_handlers(&ui);
+
+    ui
+}
+
+fn setup_context_menu_handlers(ui: &Rc<DockUI>) {
+    let pins = ui.pins_map.borrow().clone();
+    for (class, button) in pins {
+        attach_context_menu(ui, &button, &class, true);
+    }
 }
 
 fn create_window(app: &Application) -> ApplicationWindow {
@@ -348,7 +370,13 @@ fn setup_static_behavior(window: &ApplicationWindow, content: &Box, config: &Con
     window.set_child(Some(content));
 }
 
-fn setup_auto_hide_behavior(window: &ApplicationWindow, content: &Box, popover: &Popover, config: &Config) {
+fn setup_auto_hide_behavior(
+    window: &ApplicationWindow,
+    content: &Box,
+    launcher_popover: &Popover,
+    context_popover: &Popover,
+    config: &Config,
+) {
     window.set_exclusive_zone(0);
 
     let revealer = Revealer::builder()
@@ -370,7 +398,15 @@ fn setup_auto_hide_behavior(window: &ApplicationWindow, content: &Box, popover: 
     root_box.append(&trigger_box);
     window.set_child(Some(&root_box));
 
-    attach_auto_hide_controllers(window, &revealer, &trigger_box, &root_box, popover, config.exclusive_zone);
+    attach_auto_hide_controllers(
+        window,
+        &revealer,
+        &trigger_box,
+        &root_box,
+        launcher_popover,
+        context_popover,
+        config.exclusive_zone,
+    );
 }
 
 fn attach_auto_hide_controllers(
@@ -378,7 +414,8 @@ fn attach_auto_hide_controllers(
     revealer: &Revealer,
     trigger: &Box,
     root: &Box,
-    popover: &Popover,
+    launcher_popover: &Popover,
+    context_popover: &Popover,
     exclusive_zone: i32,
 ) {
     let enter_controller = EventControllerMotion::new();
@@ -395,10 +432,11 @@ fn attach_auto_hide_controllers(
     let leave_controller = EventControllerMotion::new();
     let win_clone = window.clone();
     let rev_clone = revealer.clone();
-    let popover_clone = popover.clone();
+    let l_pop_clone = launcher_popover.clone();
+    let c_pop_clone = context_popover.clone();
     leave_controller.connect_leave(move |_| {
-        // ONLY hide if the launcher popover is NOT visible
-        if rev_clone.reveals_child() && !popover_clone.is_visible() {
+        // ONLY hide if NO popover is visible
+        if rev_clone.reveals_child() && !l_pop_clone.is_visible() && !c_pop_clone.is_visible() {
             rev_clone.set_reveal_child(false);
             win_clone.set_exclusive_zone(0);
         }
@@ -408,12 +446,9 @@ fn attach_auto_hide_controllers(
 
 // --- Event Handling ---
 
-/// Routes Hyprland events to the appropriate UI update logic.
 pub fn handle_event(event: HyprEvent, ui: &Rc<DockUI>) {
     match event {
-        HyprEvent::WorkspaceChanged(_) => {
-            // Nothing to do for now
-        }
+        HyprEvent::WorkspaceChanged(_) => {}
         HyprEvent::ActiveWindowChanged(addr) => {
             *ui.active_address.borrow_mut() = addr;
             let windows = ui.last_windows.borrow().clone();
@@ -429,12 +464,11 @@ pub fn handle_event(event: HyprEvent, ui: &Rc<DockUI>) {
     }
 }
 
-fn update_taskbar(ui: &DockUI, windows: Vec<WindowInfo>) {
+fn update_taskbar(ui: &Rc<DockUI>, windows: Vec<WindowInfo>) {
     clear_container(&ui.taskbar_box);
     let active_addr = ui.active_address.borrow();
 
-    // Reset all pinned apps states
-    for button in ui.pins_map.values() {
+    for button in ui.pins_map.borrow().values() {
         button.remove_css_class(CLASS_OPEN_APP);
         button.remove_css_class(CLASS_FOCUSED_APP);
     }
@@ -443,15 +477,13 @@ fn update_taskbar(ui: &DockUI, windows: Vec<WindowInfo>) {
         let is_focused = active_addr.as_ref() == Some(&win.address);
         let class_lower = win.class.to_lowercase();
 
-        if let Some(pinned_btn) = ui.pins_map.get(&class_lower) {
-            // Update pinned app state
+        if let Some(pinned_btn) = ui.pins_map.borrow().get(&class_lower) {
             pinned_btn.add_css_class(CLASS_OPEN_APP);
             if is_focused {
                 pinned_btn.add_css_class(CLASS_FOCUSED_APP);
             }
         } else {
-            // Add to taskbar section if not pinned
-            let item = create_taskbar_item(&win, is_focused, ui.config.icon_size);
+            let item = create_taskbar_item(ui, &win, is_focused);
             ui.taskbar_box.append(&item);
         }
     }
@@ -463,7 +495,8 @@ fn clear_container(container: &Box) {
     }
 }
 
-fn create_taskbar_item(win: &WindowInfo, is_focused: bool, icon_size: i32) -> Button {
+fn create_taskbar_item(ui: &Rc<DockUI>, win: &WindowInfo, is_focused: bool) -> Button {
+    let config = ui.config.borrow();
     let button = Button::builder()
         .has_frame(false)
         .build();
@@ -475,7 +508,7 @@ fn create_taskbar_item(win: &WindowInfo, is_focused: bool, icon_size: i32) -> Bu
     button.set_tooltip_text(Some(&win.title));
 
     let icon = Image::builder()
-        .pixel_size(icon_size)
+        .pixel_size(config.icon_size)
         .build();
     icon.add_css_class(CLASS_TASKBAR_ICON);
 
@@ -492,38 +525,124 @@ fn create_taskbar_item(win: &WindowInfo, is_focused: bool, icon_size: i32) -> Bu
         crate::hypr::focus_window(&addr);
     });
 
+    attach_context_menu(ui, &button, &win.class, false);
+
     button
+}
+
+fn attach_context_menu(ui: &Rc<DockUI>, button: &Button, class: &str, is_pinned: bool) {
+    let gesture = GestureClick::builder()
+        .button(3) // Right click
+        .build();
+
+    let ui_clone = ui.clone();
+    let btn_clone = button.clone();
+    let class_clone = class.to_string();
+    gesture.connect_pressed(move |_, _, _, _| {
+        show_context_menu(&ui_clone, &btn_clone, &class_clone, is_pinned);
+    });
+
+    button.add_controller(gesture);
+}
+
+fn show_context_menu(ui: &Rc<DockUI>, button: &Button, class: &str, is_pinned: bool) {
+    let popover = &ui.context_menu;
+    
+    if let Some(_) = popover.parent() {
+        popover.unparent();
+    }
+
+    let menu_box = Box::builder()
+        .orientation(Orientation::Vertical)
+        .build();
+
+    let action_button = Button::builder()
+        .label(if is_pinned { "Remove from Favorites" } else { "Add to Favorites" })
+        .has_frame(false)
+        .build();
+    action_button.add_css_class(CLASS_CONTEXT_MENU_ITEM);
+
+    let ui_clone = ui.clone();
+    let class_clone = class.to_string();
+    let popover_clone = popover.clone();
+    action_button.connect_clicked(move |_| {
+        if is_pinned {
+            unpin_app(&ui_clone, &class_clone);
+        } else {
+            pin_app(&ui_clone, &class_clone);
+        }
+        popover_clone.popdown();
+    });
+
+    menu_box.append(&action_button);
+    popover.set_child(Some(&menu_box));
+    popover.set_parent(button);
+    popover.popup();
+}
+
+fn pin_app(ui: &Rc<DockUI>, class: &str) {
+    let mut config = ui.config.borrow_mut();
+    let class_lower = class.to_lowercase();
+    if !config.pinned_apps.iter().any(|p| p.to_lowercase() == class_lower) {
+        config.pinned_apps.push(class.to_string());
+        crate::config::save_config(&config);
+        
+        // IMPORTANT: Drop mutable borrow before refreshing
+        drop(config);
+        refresh_dock(ui);
+    }
+}
+
+fn unpin_app(ui: &Rc<DockUI>, class: &str) {
+    let mut config = ui.config.borrow_mut();
+    let class_lower = class.to_lowercase();
+    config.pinned_apps.retain(|p| p.to_lowercase() != class_lower);
+    crate::config::save_config(&config);
+    
+    // IMPORTANT: Drop mutable borrow before refreshing
+    drop(config);
+    refresh_dock(ui);
+}
+
+fn refresh_dock(ui: &Rc<DockUI>) {
+    let config = ui.config.borrow().clone();
+    clear_container(&ui.pins_box);
+    let mut pins_map = ui.pins_map.borrow_mut();
+    pins_map.clear();
+
+    for class in &config.pinned_apps {
+        let pin = create_pinned_app_button(class, config.icon_size);
+        ui.pins_box.append(&pin);
+        pins_map.insert(class.to_lowercase(), pin.clone());
+        attach_context_menu(ui, &pin, class, true);
+    }
+
+    let windows = ui.last_windows.borrow().clone();
+    // Drop the borrow before calling update_taskbar just in case
+    drop(pins_map);
+    update_taskbar(ui, windows);
 }
 
 fn resolve_gicon(class: &str) -> Option<gio::Icon> {
     if class.is_empty() { return None; }
     let class_lower = class.to_lowercase();
-    
-    // 1. Fast path: Exact theme lookup
     if let Some(display) = Display::default() {
         let icon_theme = IconTheme::for_display(&display);
         if icon_theme.has_icon(&class_lower) {
             return Some(gio::ThemedIcon::new(&class_lower).upcast());
         }
     }
-
-    // 2. Defensive fuzzy scan of all installed apps
     let apps = gio::AppInfo::all();
     for app in &apps {
         let id = std::panic::catch_unwind(|| app.id()).unwrap_or(None)
-            .map(|i| i.to_string().to_lowercase())
-            .unwrap_or_default();
+            .map(|i| i.to_string().to_lowercase()).unwrap_or_default();
         let name = std::panic::catch_unwind(|| app.name().to_lowercase()).unwrap_or_default();
-        
-        // Match if the app name or ID is part of the window class (common for Web Apps)
         if (!name.is_empty() && class_lower.contains(&name)) || (!id.is_empty() && class_lower.contains(&id)) {
             if let Ok(icon) = std::panic::catch_unwind(|| app.icon()) {
                 if let Some(icon) = icon { return Some(icon); }
             }
         }
     }
-
-    // 3. Match by executable name
     for app in apps {
         if let Ok(exec) = std::panic::catch_unwind(|| app.executable()) {
             let exec_str = exec.to_string_lossy().to_lowercase();
@@ -534,6 +653,5 @@ fn resolve_gicon(class: &str) -> Option<gio::Icon> {
             }
         }
     }
-
     None
 }
