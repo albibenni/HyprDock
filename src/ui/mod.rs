@@ -110,8 +110,6 @@ fn setup_layer_shell(window: &ApplicationWindow) {
     window.set_layer(gtk4_layer_shell::Layer::Top);
     window.set_namespace(Some(DOCK_NAMESPACE));
     window.set_anchor(gtk4_layer_shell::Edge::Bottom, true);
-    window.set_anchor(gtk4_layer_shell::Edge::Left, true);
-    window.set_anchor(gtk4_layer_shell::Edge::Right, true);
     window.set_keyboard_mode(gtk4_layer_shell::KeyboardMode::OnDemand);
 }
 

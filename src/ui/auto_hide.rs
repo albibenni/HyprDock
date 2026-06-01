@@ -21,11 +21,14 @@ pub fn setup_auto_hide(ui: &Rc<DockUI>, content: &Box) {
         .build();
     let trigger_box = Box::builder()
         .height_request(config.trigger_height)
+        .width_request(200) // Minimum width for the trigger area
+        .halign(gtk4::Align::Center)
         .build();
     trigger_box.add_css_class(CLASS_TRIGGER_BOX);
     let root_box = Box::builder()
         .orientation(Orientation::Vertical)
-        .valign(gtk4::Align::End) // Ensure the entire container stays at the bottom
+        .valign(gtk4::Align::End)
+        .halign(gtk4::Align::Center)
         .build();
     root_box.append(&revealer);
     root_box.append(&trigger_box);
