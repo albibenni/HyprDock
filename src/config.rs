@@ -20,6 +20,9 @@ pub struct Config {
     #[serde(default = "default_trigger_height")]
     pub trigger_height: i32,
 
+    #[serde(default = "default_trigger_width")]
+    pub trigger_width: i32,
+
     #[serde(default = "default_background_color")]
     pub background_color: String,
 
@@ -38,6 +41,7 @@ fn default_pinned_apps() -> Vec<String> {
 fn default_icon_size() -> i32 { 32 }
 fn default_exclusive_zone() -> i32 { 60 }
 fn default_trigger_height() -> i32 { 2 }
+fn default_trigger_width() -> i32 { 100 }
 fn default_background_color() -> String { "rgba(20, 20, 30, 0.15)".to_string() }
 fn default_overlay() -> bool { true }
 
@@ -49,6 +53,7 @@ impl Default for Config {
             icon_size: default_icon_size(),
             exclusive_zone: default_exclusive_zone(),
             trigger_height: default_trigger_height(),
+            trigger_width: default_trigger_width(),
             background_color: default_background_color(),
             overlay: default_overlay(),
         }
